@@ -31,32 +31,44 @@ Markeer favorieten, wijs plekken af en schrijf notities (bv. "toestemming vragen
 
 ## Installatie
 
+Drie stappen. De tweede doet de rest automatisch.
+
 ### 1. Node.js
 
-Installeer [Node.js](https://nodejs.org) **22.18 of nieuwer** (kies "LTS").
+Installeer [Node.js](https://nodejs.org) **22.18 of nieuwer** (kies "LTS"), en de [Claude desktop-app](https://claude.ai/download) als je die nog niet hebt.
 
-### 2. Location Scout
-
-```bash
-cd scout
-npm install
-cp .env.example .env
-```
-
-### 3. Google-sleutel
+### 2. Google-sleutel aanmaken
 
 In de [Google Cloud Console](https://console.cloud.google.com/):
 
 1. Maak een project aan en koppel een facturatieaccount. Google vraagt een bankkaart, maar Location Scout blijft binnen het gratis gebruik.
 2. Zet onder *APIs & Services → Library* deze vier API's aan: **Geocoding API**, **Places API (New)**, **Street View Static API** en **Maps Embed API**.
 3. Maak onder *Credentials* een **API-sleutel**. Beperk ze via *API restrictions* tot die vier API's.
-4. Zet de sleutel in `scout/.env`: `GOOGLE_MAPS_API_KEY=...`
 
-Wil je extra zekerheid? Zet in Google Cloud onder *APIs & Services → Quotas* een daglimiet, of onder *Billing → Budgets* een budgetwaarschuwing van € 1.
+Wil je extra zekerheid? Zet in Google Cloud onder *Billing → Budgets* een budgetwaarschuwing van € 1.
 
-### 4. Koppelen aan de Claude desktop-app
+### 3. Setup draaien
 
-Open in de Claude desktop-app **Instellingen → Developer → Edit Config**. Dat opent `claude_desktop_config.json`. Voeg dit toe, met het **volledige pad** naar deze map:
+Open een terminal (Mac: *Terminal*, Windows: *PowerShell*) in de map `scout` en typ:
+
+```bash
+npm run setup
+```
+
+De setup:
+- controleert je Node-versie;
+- installeert de onderdelen;
+- vraagt je Google-sleutel, bewaart die in `scout/.env` en test of hij werkt;
+- koppelt Location Scout aan de Claude desktop-app. Je bestaande instellingen blijven behouden en de oude versie wordt bewaard als `.backup`.
+
+Sluit daarna de Claude desktop-app **volledig** af en open ze opnieuw. In een nieuw gesprek staat Location Scout dan bij je tools/connectors.
+
+Gebruik je Claude Code in deze repo? Dan is de koppeling al ingesteld in `.mcp.json`.
+
+<details>
+<summary>Liever met de hand koppelen?</summary>
+
+Open in de Claude desktop-app **Instellingen → Developer → Edit Config** en voeg dit toe, met het volledige pad naar deze map:
 
 ```json
 {
@@ -69,11 +81,8 @@ Open in de Claude desktop-app **Instellingen → Developer → Edit Config**. Da
 }
 ```
 
-Op Windows schrijf je het pad als `"C:\\Users\\jij\\yelu\\scout\\src\\mcp.ts"`. Sluit de Claude-app volledig af en start ze opnieuw. In een nieuw gesprek staat Location Scout dan bij je tools/connectors.
-
-Gebruik je Claude Code in deze repo? Dan is de koppeling al ingesteld in `.mcp.json`.
-
-> Krijgt de Claude-app de koppeling niet gestart? Vervang dan `"node"` door het volledige pad van Node. Dat vind je met `which node` (Mac) of `where node` (Windows).
+Zet je sleutel dan zelf in `scout/.env` (kopieer `.env.example`) en voer `npm install` uit in de map `scout`.
+</details>
 
 ## Gebruiken
 
