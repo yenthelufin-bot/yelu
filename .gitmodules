@@ -1,0 +1,6 @@
+[submodule "mcp/street-view-mcp"]
+	path = mcp/street-view-mcp
+	url = https://github.com/vlad-ds/street-view-mcp.git
+[submodule "mcp/google-maps-mcp"]
+	path = mcp/google-maps-mcp
+	url = https://github.com/apurvaumredkar/google-maps-mcp.git

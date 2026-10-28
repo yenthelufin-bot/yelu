@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "street-view": {
+      "command": "uv",
+      "args": ["run", "--directory", "mcp/street-view-mcp", "mcp", "run", "src/street_view_mcp/server.py"],
+      "env": {
+        "API_KEY": "${GOOGLE_MAPS_API_KEY}"
+      }
+    },
+    "google-maps": {
+      "type": "http",
+      "url": "http://localhost:3003/mcp"
+    }
+  }
+}
