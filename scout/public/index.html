@@ -69,8 +69,8 @@
       <details class="advanced">
         <summary>Geavanceerd</summary>
         <label class="field">
-          <span>Aantal plekken om te bekijken: <strong id="max-label">40</strong></span>
-          <input id="max-candidates" type="range" min="5" max="200" step="5" value="40">
+          <span>Aantal plekken om te bekijken: <strong id="max-label">20</strong></span>
+          <input id="max-candidates" type="range" min="5" max="200" step="5" value="20">
         </label>
         <label class="field">
           <span>Toon resultaten vanaf score: <strong id="minscore-label">60</strong></span>
@@ -88,17 +88,19 @@
         </fieldset>
       </details>
 
+      <p id="estimate" class="hint">Gratis Google-gebruik: —</p>
       <div class="submit-row">
-        <p id="estimate" class="hint">Maximale kost: —</p>
-        <button type="submit" id="start" class="primary">Start zoektocht</button>
+        <button type="button" id="copy-prompt" class="primary">Kopieer opdracht voor Claude</button>
+        <button type="submit" id="start" class="ghost" hidden>Start hier (Claude API, betaald)</button>
       </div>
+      <p id="copy-help" class="hint">Plak de opdracht in de Claude-app. Claude zoekt en bekijkt de plekken binnen je abonnement en zet de resultaten hier.</p>
       <p id="form-error" class="error" role="alert" hidden></p>
     </form>
 
     <section id="results-panel" class="panel results">
       <div id="empty-state" class="empty">
         <h2>Laat de zoektocht het scrollen doen</h2>
-        <p>Kies links een zone, het soort plek en de kleuren. De tool zoekt kandidaten via Google Places, OpenStreetMap en een steekproef van straten, en bekijkt elke plek in Street View. Claude beoordeelt die beelden.</p>
+        <p>Kies links een zone, het soort plek en de kleuren. Kopieer de opdracht en plak ze in de Claude-app. Claude zoekt kandidaten via Google Places, OpenStreetMap en een steekproef van straten, en bekijkt elke plek in Street View.</p>
         <p>Je krijgt een gerangschikte lijst terug met scores, kleurpalet en lichtadvies. Bewaar je favorieten en exporteer ze naar Google My Maps.</p>
       </div>
 

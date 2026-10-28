@@ -30,6 +30,8 @@ export async function queryOverpass(
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "location-scout/1.0" },
     body: new URLSearchParams({ data: buildOverpassQuery(selectors, center, radiusM, limit) }),
+    // The public server can be slow; better to continue without OSM than to hang.
+    signal: AbortSignal.timeout(45_000),
   });
   if (!res.ok) throw new Error(`Overpass: ${res.status} ${(await res.text()).slice(0, 200)}`);
   const body = (await res.json()) as { elements?: any[] };

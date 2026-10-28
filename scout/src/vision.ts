@@ -75,7 +75,7 @@ const AnswerSchema = z.object({
   tags: z.array(z.string()),
 });
 
-const SYSTEM_PROMPT = `You are an experienced location scout for photo and video shoots. You get Google Street View images of one spot, taken from the same point in different directions, plus a brief from a photographer. Judge how well this spot would work as a shoot location for that brief.
+export const SYSTEM_PROMPT = `You are an experienced location scout for photo and video shoots. You get Google Street View images of one spot, taken from the same point in different directions, plus a brief from a photographer. Judge how well this spot would work as a shoot location for that brief.
 
 How to score (0-100):
 - 85-100: clearly matches the requested location type and colour setting; a photographer would want to go there.

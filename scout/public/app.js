@@ -165,13 +165,54 @@ function readForm() {
 const refreshEstimate = debounce(async () => {
   const req = readForm();
   if (!req.place) req.place = "xx";
+  if (!req.locationTypes.length) req.locationTypes = ["stedelijk"];
+  const el = $("#estimate");
   try {
-    const { maxUsd } = await api("/api/estimate", { method: "POST", body: JSON.stringify(req) });
-    $("#estimate").textContent = `Maximale kost: ± $${maxUsd.toFixed(2)} (Google + Claude)`;
+    const { usage, free } = await api("/api/estimate", { method: "POST", body: JSON.stringify(req) });
+    const images = free.items.find((i) => i.sku === "streetViewImage");
+    const left = Math.max(0, images.limit - images.used);
+    el.textContent = `Gratis: deze zoektocht gebruikt hooguit ${usage.streetViewImages} Street View-beelden. Nog ${left.toLocaleString("nl-BE")} van ${images.limit.toLocaleString("nl-BE")} gratis deze maand.`;
+    el.classList.toggle("usage-low", left < usage.streetViewImages);
   } catch {
-    $("#estimate").textContent = "Maximale kost: —";
+    el.textContent = "Gratis Google-gebruik: —";
   }
 }, 300);
+
+/** The form's choices as an instruction to paste in the Claude app, which has the Location Scout tools. */
+function buildPrompt(req) {
+  const c = state.config;
+  const label = (list, id) => list.find((x) => x.id === id)?.label ?? id;
+  const lines = [
+    `Zoek fotoshootlocaties met Location Scout (scout_search).`,
+    `- Plaats: ${req.place}, straal ${req.radiusKm} km`,
+    `- Type locatie: ${req.locationTypes.map((id) => `${label(c.locationTypes, id)} [${id}]`).join(", ")}`,
+  ];
+  if (req.description) lines.push(`- Omschrijving: ${req.description}`);
+  if (req.shootType) lines.push(`- Soort shoot: ${req.shootType}`);
+  if (req.colorPresets.length) lines.push(`- Kleursetting: ${req.colorPresets.map((id) => `${label(c.colorPresets, id)} [${id}]`).join(", ")}`);
+  if (req.customColors.length) lines.push(`- Eigen kleuren: ${req.customColors.join(", ")}`);
+  if (req.extraFilters.length) lines.push(`- Extra wensen: ${req.extraFilters.map((id) => `${label(c.extraFilters, id)} [${id}]`).join(", ")}`);
+  if (req.minPanoYear) lines.push(`- Street View-beelden niet ouder dan ${req.minPanoYear}`);
+  lines.push(`- Aantal plekken: ${Math.min(req.maxCandidates, 40)}`);
+  lines.push("", "Bekijk alle plekken, beoordeel ze en rond af met de link naar de resultaten.");
+  return lines.join("\n");
+}
+
+async function copyPrompt() {
+  const req = readForm();
+  if (!req.place) return showFormError("Geef een gemeente of stad op.");
+  if (!req.locationTypes.length) return showFormError("Kies minstens één type locatie.");
+  showFormError("");
+  const prompt = buildPrompt(req);
+  const button = $("#copy-prompt");
+  try {
+    await navigator.clipboard.writeText(prompt);
+    button.textContent = "Gekopieerd ✓ Plak in de Claude-app";
+    setTimeout(() => (button.textContent = "Kopieer opdracht voor Claude"), 4000);
+  } catch {
+    window.prompt("Kopieer deze opdracht en plak ze in de Claude-app:", prompt);
+  }
+}
 
 const geocodePreview = debounce(async () => {
   const q = $("#place").value.trim();
@@ -213,6 +254,7 @@ async function startSearch(event) {
 // ---------- run / results ----------
 
 function openSearch(id) {
+  state.openId = id;
   switchView("search");
   location.hash = `zoektocht/${id}`;
   state.events?.close();
@@ -233,6 +275,28 @@ function openSearch(id) {
   };
 }
 
+/** A search Claude is working on in the Claude app: reload it now and then. */
+let pollTimer = null;
+function pollExternal() {
+  clearTimeout(pollTimer);
+  const s = state.search;
+  if (!s || s.status !== "running" || state.running) return;
+  pollTimer = setTimeout(async () => {
+    if (state.search?.id !== s.id || $("#view-search").hidden) return pollExternal();
+    try {
+      const fresh = await api(`/api/searches/${s.id}`);
+      if (fresh.results.length !== s.results.length || fresh.status !== s.status) {
+        state.search = fresh;
+        renderRun();
+        renderResults();
+      }
+    } catch {
+      return;
+    }
+    pollExternal();
+  }, 5000);
+}
+
 function handleEvent(ev) {
   switch (ev.type) {
     case "snapshot":
@@ -243,6 +307,7 @@ function handleEvent(ev) {
       renderRun();
       renderResults();
       fitResults();
+      pollExternal();
       break;
     case "status":
       $("#run-status").textContent = ev.message;
@@ -256,7 +321,7 @@ function handleEvent(ev) {
         state.search.cost = ev.cost;
         state.search.analysed = ev.analysed;
       }
-      $("#run-meta").textContent = `${ev.analysed} van ${ev.total} plekken bekeken · kost tot nu: $${ev.cost.estimatedUsd.toFixed(2)}`;
+      $("#run-meta").textContent = `${ev.analysed} van ${ev.total} plekken bekeken · ${ev.cost.streetViewImages} Street View-beelden${claudeCost(ev.cost)}`;
       break;
     case "result":
       if (state.search) {
@@ -278,18 +343,26 @@ function handleEvent(ev) {
   }
 }
 
+const claudeCost = (cost) => (cost.estimatedUsd > 0 ? ` · Claude API: $${cost.estimatedUsd.toFixed(2)}` : "");
+
 function renderRun() {
   const s = state.search;
   if (!s) return;
   const r = s.request;
   $("#run-title").textContent = `${r.place} · ${r.radiusKm} km`;
   $("#cancel").hidden = !state.running;
-  const done = s.status !== "running";
-  if (done) {
+  const external = s.status === "running" && !state.running;
+  if (external) {
+    // Claude is working on it in the Claude app.
+    const total = s.spots?.length ?? 0;
+    $("#progress-bar").style.width = `${total ? (100 * s.analysed) / total : 0}%`;
+    $("#run-status").textContent = "Claude bekijkt de plekken in de Claude-app… Deze pagina werkt zichzelf bij.";
+    $("#run-meta").textContent = `${s.analysed} van ${total} plekken beoordeeld · ${s.cost.streetViewImages} Street View-beelden`;
+  } else if (s.status !== "running") {
     $("#progress-bar").style.width = "100%";
     const labels = { done: "Klaar.", cancelled: "Gestopt.", error: `Fout: ${s.error}` };
     $("#run-status").textContent = labels[s.status] ?? "";
-    $("#run-meta").textContent = `${s.analysed} plekken bekeken van ${s.candidatesFound} kandidaten · kost: $${s.cost.estimatedUsd.toFixed(2)}`;
+    $("#run-meta").textContent = `${s.analysed} plekken bekeken van ${s.candidatesFound} kandidaten · ${s.cost.streetViewImages} Street View-beelden${claudeCost(s.cost)}`;
   }
   for (const fmt of ["kml", "gpx", "csv"]) {
     const params = new URLSearchParams({ minScore: $("#filter-score").value });
@@ -515,8 +588,10 @@ async function renderHistory() {
       .join(", ");
     const meta = document.createElement("p");
     meta.className = "hint";
-    const status = s.running ? "bezig" : { done: "klaar", cancelled: "gestopt", error: "fout", running: "onderbroken" }[s.status];
-    meta.textContent = `${new Date(s.createdAt).toLocaleString("nl-BE")} · ${types} · ${s.resultCount} locaties${s.topScore !== null ? ` (beste ${s.topScore})` : ""} · ${s.favoriteCount} favorieten · ${status} · $${s.cost.estimatedUsd.toFixed(2)}`;
+    const status = s.running
+      ? "bezig"
+      : { done: "klaar", cancelled: "gestopt", error: "fout", running: s.engine === "claude-app" ? "bezig in Claude" : "onderbroken" }[s.status];
+    meta.textContent = `${new Date(s.createdAt).toLocaleString("nl-BE")} · ${types} · ${s.resultCount} locaties${s.topScore !== null ? ` (beste ${s.topScore})` : ""} · ${s.favoriteCount} favorieten · ${status}${claudeCost(s.cost)}`;
     info.append(h, meta);
     const buttons = document.createElement("div");
     buttons.className = "buttons";
@@ -583,12 +658,9 @@ function switchView(view) {
 }
 
 function showSetupWarning(c) {
-  const missing = [];
-  if (!c.hasGoogleKey) missing.push("<code>GOOGLE_MAPS_API_KEY</code>");
-  if (!c.hasAnthropicKey) missing.push("<code>ANTHROPIC_API_KEY</code>");
-  if (!missing.length) return;
+  if (c.hasGoogleKey) return;
   const banner = $("#setup-warning");
-  banner.innerHTML = `Nog niet klaar om te zoeken: ${missing.join(" en ")} ontbreekt. Zet de sleutel in <code>scout/.env</code> en herstart de server (zie README).`;
+  banner.innerHTML = "Nog niet klaar om te zoeken: <code>GOOGLE_MAPS_API_KEY</code> ontbreekt. Zet de sleutel in <code>scout/.env</code> en herstart (zie README).";
   banner.hidden = false;
 }
 
@@ -599,6 +671,9 @@ async function init() {
   renderCustomColors();
 
   $("#search-form").addEventListener("submit", startSearch);
+  $("#copy-prompt").addEventListener("click", copyPrompt);
+  // A paid alternative, only offered when an Anthropic API key is configured.
+  $("#start").hidden = state.config.engine !== "api";
   $("#place").addEventListener("input", () => {
     geocodePreview();
     refreshEstimate();
@@ -632,9 +707,14 @@ async function init() {
   }
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
 
+  if (state.config.engine === "claude-app") $("#max-candidates").max = "40";
   refreshEstimate();
-  const match = location.hash.match(/^#zoektocht\/([0-9a-f-]{36})$/);
-  if (match) openSearch(match[1]);
+  const openFromHash = () => {
+    const match = location.hash.match(/^#zoektocht\/([0-9a-f-]{36})$/);
+    if (match && match[1] !== state.openId) openSearch(match[1]);
+  };
+  window.addEventListener("hashchange", openFromHash);
+  openFromHash();
 }
 
 init().catch((err) => {

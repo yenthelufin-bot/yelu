@@ -72,8 +72,17 @@ export interface SearchCost {
   estimatedUsd: number;
 }
 
+/** A spot found for a search that Claude (in the Claude app) still has to look at. */
+export interface PendingSpot extends PanoCandidate {
+  spotId: string;
+  status: "pending" | "viewed" | "assessed" | "skipped";
+}
+
 export interface SavedSearch {
   id: string;
+  /** "api": assessed with an Anthropic API key; "claude-app": assessed by Claude through the MCP link. */
+  engine?: "api" | "claude-app";
+  spots?: PendingSpot[];
   createdAt: string;
   request: SearchRequest;
   center: LatLng;

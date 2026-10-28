@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { destination } from "../src/geo.ts";
 import { GoogleApiError } from "../src/google.ts";
-import { estimateMaxCost, headingsFor, interleave, isFatal, runSearch, type SearchEvent } from "../src/pipeline.ts";
+import { estimateUsage, headingsFor, interleave, isFatal, runSearch, type SearchEvent } from "../src/pipeline.ts";
 import { fakeDeps, GENT, request, verdict } from "./helpers.ts";
 
 const run = async (deps: Parameters<typeof runSearch>[1], req = request(), signal = new AbortController().signal) => {
@@ -24,7 +24,7 @@ test("a search analyses up to maxCandidates spots and ranks them", async () => {
   );
   assert.ok(search.results.every((r) => r.lightAdvice && r.rating === null && r.note === ""));
   assert.equal(search.cost.streetViewImages, calls.images);
-  assert.ok(search.cost.estimatedUsd > 0);
+  assert.ok(search.cost.estimatedUsd > 0, "Claude API tokens are priced");
   assert.equal(events.at(-1)?.type, "done");
   // All three sources contribute candidates.
   const sources = new Set(search.results.map((r) => r.source));
@@ -115,6 +115,8 @@ test("helpers", () => {
   assert.ok(isFatal(Object.assign(new Error("x"), { status: 401 })));
   assert.ok(isFatal(new GoogleApiError("Geocoding", "REQUEST_DENIED")));
   assert.ok(!isFatal(new Error("Street View: 500")));
-  const cost = estimateMaxCost(request({ maxCandidates: 40 }));
-  assert.ok(cost > 1 && cost < 5, `got ${cost}`);
+  assert.deepEqual(estimateUsage(request({ maxCandidates: 40, locationTypes: ["industrieel", "water"] })), {
+    streetViewImages: 160,
+    placesRequests: 6,
+  });
 });

@@ -6,10 +6,11 @@ import { fileURLToPath } from "node:url";
 import { toCsv, toGpx, toKml } from "./export.ts";
 import { GoogleMaps } from "./google.ts";
 import { queryOverpass } from "./overpass.ts";
-import { estimateMaxCost, type PipelineDeps, runSearch, type SearchEvent } from "./pipeline.ts";
+import { estimateUsage, type PipelineDeps, runSearch, type SearchEvent } from "./pipeline.ts";
 import { COLOR_PRESETS, EXTRA_FILTERS, LOCATION_TYPES, SHOOT_TYPES } from "./presets.ts";
 import { SearchStore } from "./store.ts";
 import { ResultPatchSchema, type SavedSearch, SearchRequestSchema } from "./types.ts";
+import { meteredMaps, UsageMeter } from "./usage.ts";
 import { LocationJudge, type ViewImage } from "./vision.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -28,7 +29,7 @@ interface Running {
  * terms don't allow storing them. Saved searches show the live Street View
  * embed instead.
  */
-class ImageCache {
+export class ImageCache {
   private readonly images = new Map<string, Buffer>();
   private readonly maxImages = 1500;
   put(searchId: string, resultId: string, views: ViewImage[]) {
@@ -46,6 +47,10 @@ export interface AppOptions {
   hasAnthropicCredentials: boolean;
   /** Overrides the real API clients; used by tests. */
   deps?: Omit<PipelineDeps, "onImages" | "onUpdate">;
+  /** Shared with the Claude link when it hosts this app in the same process. */
+  store?: SearchStore;
+  images?: ImageCache;
+  meter?: UsageMeter;
 }
 
 class HttpError extends Error {
@@ -84,15 +89,24 @@ const MIME: Record<string, string> = {
 };
 
 export function createApp(options: AppOptions): http.Server {
-  const store = new SearchStore(options.dataDir);
-  const images = new ImageCache();
+  const store = options.store ?? new SearchStore(options.dataDir);
+  const images = options.images ?? new ImageCache();
+  const meter = options.meter ?? new UsageMeter(options.dataDir);
   const running = new Map<string, Running>();
+
+  const googleMaps = () => {
+    if (options.deps) return options.deps.maps;
+    if (!options.googleKey) throw new HttpError(503, "GOOGLE_MAPS_API_KEY ontbreekt. Zie README.");
+    return meteredMaps(new GoogleMaps(options.googleKey), meter);
+  };
 
   const buildDeps = (): Omit<PipelineDeps, "onImages" | "onUpdate"> => {
     if (options.deps) return options.deps;
-    if (!options.googleKey) throw new HttpError(503, "GOOGLE_MAPS_API_KEY ontbreekt. Zie README.");
-    if (!options.hasAnthropicCredentials) throw new HttpError(503, "ANTHROPIC_API_KEY ontbreekt. Zie README.");
-    return { maps: new GoogleMaps(options.googleKey), judge: new LocationJudge(), overpass: queryOverpass };
+    const maps = googleMaps();
+    if (!options.hasAnthropicCredentials) {
+      throw new HttpError(503, "Zonder ANTHROPIC_API_KEY start je een zoektocht vanuit de Claude-app. Zie README.");
+    }
+    return { maps, judge: new LocationJudge(), overpass: queryOverpass };
   };
 
   const broadcast = (id: string, event: SearchEvent) => {
@@ -124,6 +138,8 @@ export function createApp(options: AppOptions): http.Server {
     if (parts[1] === "config" && method === "GET") {
       sendJson(res, 200, {
         ready: Boolean(options.deps || (options.googleKey && options.hasAnthropicCredentials)),
+        // Without an API key, Claude does the assessments in the Claude app (free with a subscription).
+        engine: options.deps || options.hasAnthropicCredentials ? "api" : "claude-app",
         hasGoogleKey: Boolean(options.googleKey),
         hasAnthropicKey: options.hasAnthropicCredentials,
         // For the Street View embed in the browser. The server only listens on
@@ -141,8 +157,7 @@ export function createApp(options: AppOptions): http.Server {
     if (parts[1] === "geocode" && method === "GET") {
       const q = url.searchParams.get("q")?.trim();
       if (!q) throw new HttpError(400, "Geen plaats opgegeven");
-      const maps = options.deps?.maps ?? (options.googleKey ? new GoogleMaps(options.googleKey) : null);
-      if (!maps) throw new HttpError(503, "GOOGLE_MAPS_API_KEY ontbreekt. Zie README.");
+      const maps = googleMaps();
       try {
         sendJson(res, 200, await maps.geocode(q));
       } catch (err) {
@@ -155,7 +170,13 @@ export function createApp(options: AppOptions): http.Server {
     if (parts[1] === "estimate" && method === "POST") {
       const parsed = SearchRequestSchema.safeParse(await readJson(req));
       if (!parsed.success) throw new HttpError(400, parsed.error.issues[0].message);
-      sendJson(res, 200, { maxUsd: estimateMaxCost(parsed.data) });
+      sendJson(res, 200, { usage: estimateUsage(parsed.data), free: meter.report() });
+      return;
+    }
+
+    // GET /api/usage: how much of Google's free monthly amount is used
+    if (parts[1] === "usage" && method === "GET") {
+      sendJson(res, 200, meter.report());
       return;
     }
 
@@ -312,7 +333,7 @@ export function createApp(options: AppOptions): http.Server {
   });
 }
 
-function loadEnv() {
+export function loadEnv() {
   for (const file of [path.join(ROOT, ".env"), path.join(ROOT, "..", ".env")]) {
     try {
       process.loadEnvFile(file);
@@ -326,14 +347,18 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   loadEnv();
   const port = Number(process.env.PORT ?? 4173);
   const host = process.env.HOST ?? "127.0.0.1";
+  const dataDir = process.env.SCOUT_DATA_DIR ?? path.join(ROOT, "data");
   const app = createApp({
-    dataDir: process.env.SCOUT_DATA_DIR ?? path.join(ROOT, "data"),
+    dataDir,
     googleKey: process.env.GOOGLE_MAPS_API_KEY,
     hasAnthropicCredentials: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
+    meter: new UsageMeter(dataDir, { enforced: process.env.SCOUT_FREE_LIMITS !== "off" }),
   });
   app.listen(port, host, () => {
     console.log(`Location Scout draait op http://${host === "0.0.0.0" ? "localhost" : host}:${port}`);
     if (!process.env.GOOGLE_MAPS_API_KEY) console.warn("Let op: GOOGLE_MAPS_API_KEY ontbreekt.");
-    if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) console.warn("Let op: ANTHROPIC_API_KEY ontbreekt.");
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
+      console.log("Geen ANTHROPIC_API_KEY: zoektochten start je gratis vanuit de Claude-app (zie README).");
+    }
   });
 }

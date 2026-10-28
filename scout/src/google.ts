@@ -48,11 +48,13 @@ export class GoogleMaps {
     return { location: first.geometry.location, formattedAddress: first.formatted_address };
   }
 
-  /** Places API (New) text search, biased to a circle. Returns at most 60 places. */
-  async searchText(query: string, center: LatLng, radiusM: number): Promise<PlaceResult[]> {
+  /** Places API (New) text search, biased to a circle. Each page of 20 is one billed request. */
+  async searchText(query: string, center: LatLng, radiusM: number, maxPages = 1): Promise<PlaceResult[]> {
     const results: PlaceResult[] = [];
     let pageToken: string | undefined;
+    let pages = 0;
     do {
+      pages++;
       const res = await this.fetchFn("https://places.googleapis.com/v1/places:searchText", {
         method: "POST",
         headers: {
@@ -81,7 +83,7 @@ export class GoogleMaps {
         });
       }
       pageToken = body.nextPageToken;
-    } while (pageToken && results.length < 60);
+    } while (pageToken && pages < maxPages);
     return results;
   }
 
