@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Location Scout</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='13' r='9' fill='%23e07a2f'/%3E%3Cpath d='M16 31 9 18h14z' fill='%23e07a2f'/%3E%3Ccircle cx='16' cy='13' r='4' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="13" r="9"/><path d="M16 31 9 18h14z"/><circle cx="16" cy="13" r="4" class="hole"/></svg>
+      <span>Location Scout</span>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-view="search" aria-selected="true">Nieuwe zoektocht</button>
+      <button role="tab" data-view="history" aria-selected="false">Eerdere zoektochten</button>
+    </nav>
+  </header>
+
+  <div id="setup-warning" class="banner" hidden></div>
+
+  <main id="view-search" class="layout">
+    <form id="search-form" class="panel form" novalidate>
+      <section>
+        <h2>Waar?</h2>
+        <label class="field">
+          <span>Gemeente of stad</span>
+          <input id="place" name="place" type="text" placeholder="bv. Gent, Charleroi, Zeebrugge" autocomplete="off" required>
+        </label>
+        <label class="field">
+          <span>Straal: <strong id="radius-label">10 km</strong></span>
+          <input id="radius" name="radius" type="range" min="1" max="50" step="1" value="10">
+        </label>
+        <div id="zone-map" class="zone-map" aria-label="Kaart van de zoekzone"></div>
+        <p id="zone-hint" class="hint">Typ een plaats om de zoekzone op de kaart te zien.</p>
+      </section>
+
+      <section>
+        <h2>Wat voor locatie?</h2>
+        <div id="location-types" class="chips" role="group" aria-label="Type locatie"></div>
+        <label class="field">
+          <span>Beschrijf wat je zoekt <em>(optioneel, in eigen woorden)</em></span>
+          <textarea id="description" rows="3" maxlength="500" placeholder="bv. lange rechte weg met een bomenrij, roestige loods met grote schuifdeur, oude stenen brug over water"></textarea>
+        </label>
+        <label class="field">
+          <span>Soort shoot</span>
+          <select id="shoot-type"><option value="">— niet opgegeven —</option></select>
+        </label>
+      </section>
+
+      <section>
+        <h2>Kleursetting</h2>
+        <div id="color-presets" class="chips swatch-chips" role="group" aria-label="Kleursetting"></div>
+        <div class="custom-colors">
+          <span class="label">Eigen kleuren</span>
+          <div id="custom-colors"></div>
+          <button type="button" id="add-color" class="ghost small">+ kleur</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Extra wensen</h2>
+        <div id="extra-filters" class="chips" role="group" aria-label="Extra wensen"></div>
+      </section>
+
+      <details class="advanced">
+        <summary>Geavanceerd</summary>
+        <label class="field">
+          <span>Aantal plekken om te bekijken: <strong id="max-label">40</strong></span>
+          <input id="max-candidates" type="range" min="5" max="200" step="5" value="40">
+        </label>
+        <label class="field">
+          <span>Toon resultaten vanaf score: <strong id="minscore-label">60</strong></span>
+          <input id="min-score" type="range" min="0" max="95" step="5" value="60">
+        </label>
+        <label class="field">
+          <span>Street View-beelden niet ouder dan</span>
+          <select id="min-year"><option value="">elk jaar</option></select>
+        </label>
+        <fieldset class="field">
+          <legend>Bronnen</legend>
+          <label class="check"><input type="checkbox" id="src-places" checked> Google Places (benoemde plekken)</label>
+          <label class="check"><input type="checkbox" id="src-osm" checked> OpenStreetMap (industrie, ruïnes, bruggen…)</label>
+          <label class="check"><input type="checkbox" id="src-grid" checked> Steekproef van straten in de zone</label>
+        </fieldset>
+      </details>
+
+      <div class="submit-row">
+        <p id="estimate" class="hint">Maximale kost: —</p>
+        <button type="submit" id="start" class="primary">Start zoektocht</button>
+      </div>
+      <p id="form-error" class="error" role="alert" hidden></p>
+    </form>
+
+    <section id="results-panel" class="panel results">
+      <div id="empty-state" class="empty">
+        <h2>Laat de zoektocht het scrollen doen</h2>
+        <p>Kies links een zone, het soort plek en de kleuren. De tool zoekt kandidaten via Google Places, OpenStreetMap en een steekproef van straten, en bekijkt elke plek in Street View. Claude beoordeelt die beelden.</p>
+        <p>Je krijgt een gerangschikte lijst terug met scores, kleurpalet en lichtadvies. Bewaar je favorieten en exporteer ze naar Google My Maps.</p>
+      </div>
+
+      <div id="run" hidden>
+        <div class="run-head">
+          <div>
+            <h2 id="run-title">Zoektocht</h2>
+            <p id="run-status" class="hint" aria-live="polite"></p>
+          </div>
+          <button type="button" id="cancel" class="ghost">Stoppen</button>
+        </div>
+        <div class="progress" aria-hidden="true"><div id="progress-bar"></div></div>
+        <p id="run-meta" class="hint"></p>
+
+        <div id="results-map" class="results-map" aria-label="Kaart met resultaten"></div>
+
+        <div class="toolbar">
+          <label>Min. score <input id="filter-score" type="range" min="0" max="95" step="5" value="60"> <strong id="filter-score-label">60</strong></label>
+          <label class="check"><input type="checkbox" id="filter-favorites"> Alleen favorieten</label>
+          <label class="check"><input type="checkbox" id="filter-rejected"> Toon afgewezen</label>
+          <select id="sort" aria-label="Sorteren">
+            <option value="score">Sorteer op score</option>
+            <option value="color">Sorteer op kleur</option>
+            <option value="distance">Sorteer op afstand</option>
+          </select>
+          <span class="spacer"></span>
+          <div class="export">
+            <span>Exporteer</span>
+            <a id="export-kml" class="ghost small" href="#">KML</a>
+            <a id="export-gpx" class="ghost small" href="#">GPX</a>
+            <a id="export-csv" class="ghost small" href="#">CSV</a>
+          </div>
+        </div>
+        <p id="result-count" class="hint"></p>
+        <div id="cards" class="cards"></div>
+        <details id="skipped-box" class="skipped" hidden>
+          <summary>Overgeslagen plekken (<span id="skipped-count">0</span>)</summary>
+          <ul id="skipped-list"></ul>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <main id="view-history" class="panel history" hidden>
+    <h2>Eerdere zoektochten</h2>
+    <div id="history-list" class="history-list"></div>
+  </main>
+
+  <template id="card-template">
+    <article class="card">
+      <div class="shots">
+        <img alt="" loading="lazy">
+        <div class="shot-nav"></div>
+        <span class="score"></span>
+      </div>
+      <div class="card-body">
+        <h3 class="name"></h3>
+        <p class="meta"></p>
+        <div class="palette"></div>
+        <p class="summary"></p>
+        <ul class="pros"></ul>
+        <ul class="cons"></ul>
+        <p class="light"></p>
+        <div class="tags"></div>
+        <textarea class="note" rows="2" placeholder="Notitie (bv. toestemming vragen, beste uur)…"></textarea>
+        <div class="actions">
+          <button type="button" class="fav ghost small" aria-pressed="false">★ Favoriet</button>
+          <button type="button" class="reject ghost small" aria-pressed="false">✕ Afwijzen</button>
+          <button type="button" class="embed ghost small">360° bekijken</button>
+          <a class="sv ghost small" target="_blank" rel="noopener">Street View ↗</a>
+          <a class="route ghost small" target="_blank" rel="noopener">Route ↗</a>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
