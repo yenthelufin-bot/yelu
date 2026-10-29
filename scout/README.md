@@ -4,6 +4,8 @@ Vindt fotoshootlocaties voor je, zodat je niet uren door Google Maps en Street V
 
 *(Voorheen Location Scout. De startbestanden heten nog zo.)*
 
+**Online zetten**, op je eigen adres en met een wachtwoord: zie [ONLINE.md](ONLINE.md).
+
 Je geeft een gemeente of stad op, met een straal in km. Je kiest het soort plek, de kleursetting en eventueel extra wensen. Location Scout zoekt dan kandidaat-plekken, bekijkt elke plek in Street View en laat de foto's beoordelen door Google Gemini. Alles gebeurt in je browser. Je krijgt een gerangschikte lijst terug met:
 
 - een score van 0 tot 100 en een korte beschrijving van de plek als shootlocatie;

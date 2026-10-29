@@ -45,6 +45,8 @@ async function api(path, options = {}) {
     throw new Error(OFFLINE_MESSAGE);
   }
   const body = res.headers.get("content-type")?.includes("json") ? await res.json() : null;
+  // Online version: the session ran out, so show the login form again.
+  if (res.status === 401 && state.config?.online) location.reload();
   if (!res.ok) throw new Error(body?.error ?? `Fout ${res.status}`);
   return body;
 }
@@ -843,7 +845,7 @@ function shareLinkBox(share, isNew = false) {
   });
   row.append(copy, open, del);
   box.append(title, input, row);
-  if (!tunnelUrl) {
+  if (!tunnelUrl && !state.config.online) {
     const hint = document.createElement("p");
     hint.className = "hint";
     hint.textContent = "Deze link werkt alleen op deze computer. Voor iemand anders: zet eerst de internetlink aan.";
@@ -857,6 +859,11 @@ let newShareToken = null;
 function renderShareList() {
   const list = $("#share-list");
   list.replaceChildren();
+  if (state.config.online) {
+    // Online every link works for everyone already; no internet link needed.
+    for (const share of state.shares) list.append(shareLinkBox(share, share.token === newShareToken));
+    return;
+  }
   const tunnelBox = document.createElement("div");
   tunnelBox.className = "share-link";
   const status = document.createElement("span");
@@ -909,7 +916,7 @@ async function openShareDialog() {
   $("#share-error").hidden = true;
   newShareToken = null;
   try {
-    tunnelUrl = (await api("/api/tunnel")).url;
+    tunnelUrl = state.config.online ? null : (await api("/api/tunnel")).url;
   } catch {
     tunnelUrl = null;
   }
@@ -1060,6 +1067,10 @@ function showSetupWarning(c) {
   banner.hidden = !todo.length;
   $("#settings-dot").hidden = !todo.length;
   if (!todo.length) return;
+  if (c.online) {
+    banner.replaceChildren(`De server mist nog ${todo.join(" en ")}. Zet ze in de omgevingsvariabelen van de server.`);
+    return;
+  }
   banner.replaceChildren(`Nog even instellen: ${todo.join(" en ")}. `);
   const link = document.createElement("a");
   link.href = "#";
@@ -1090,21 +1101,30 @@ function showResult(el, kind, title, items = []) {
 
 async function renderSettings() {
   const c = state.config;
-  $("#step-google").classList.toggle("done", c.hasGoogleKey);
-  $("#google-status").textContent = c.hasGoogleKey ? "✓ Ingesteld en getest" : "Nog niet ingesteld";
-  $("#google-help").open = !c.hasGoogleKey;
-  $("#google-save").textContent = c.hasGoogleKey ? "Vervang sleutel" : "Test en bewaar";
-  $("#step-gemini").classList.toggle("done", c.hasGeminiKey);
-  $("#gemini-status").textContent = c.hasGeminiKey ? `✓ Ingesteld en getest (${c.geminiModel})` : "Nog niet ingesteld";
-  $("#gemini-help").open = !c.hasGeminiKey;
-  $("#gemini-save").textContent = c.hasGeminiKey ? "Test en bewaar opnieuw" : "Test en bewaar";
-  $("#gemini-key").placeholder = c.hasGeminiKey ? "Leeg laten om de huidige sleutel te houden" : "AIza…";
-  const models = $("#gemini-model");
-  if (!models.options.length) {
-    for (const m of c.geminiModels) models.append(new Option(m.label, m.id));
-    if (!c.geminiModels.some((m) => m.id === c.geminiModel)) models.append(new Option(c.geminiModel, c.geminiModel));
+  if (c.online) {
+    // The keys live on the server; only the usage is shown.
+    for (const id of ["#google-help", "#google-form", "#gemini-help", "#gemini-form"]) $(id).hidden = true;
+    $("#step-google").classList.toggle("done", c.hasGoogleKey);
+    $("#step-gemini").classList.toggle("done", c.hasGeminiKey);
+    $("#google-status").textContent = c.hasGoogleKey ? "✓ Staat op de server" : "Ontbreekt op de server (GOOGLE_MAPS_API_KEY)";
+    $("#gemini-status").textContent = c.hasGeminiKey ? `✓ Staat op de server (${c.geminiModel})` : "Ontbreekt op de server (GEMINI_API_KEY)";
+  } else {
+    $("#step-google").classList.toggle("done", c.hasGoogleKey);
+    $("#google-status").textContent = c.hasGoogleKey ? "✓ Ingesteld en getest" : "Nog niet ingesteld";
+    $("#google-help").open = !c.hasGoogleKey;
+    $("#google-save").textContent = c.hasGoogleKey ? "Vervang sleutel" : "Test en bewaar";
+    $("#step-gemini").classList.toggle("done", c.hasGeminiKey);
+    $("#gemini-status").textContent = c.hasGeminiKey ? `✓ Ingesteld en getest (${c.geminiModel})` : "Nog niet ingesteld";
+    $("#gemini-help").open = !c.hasGeminiKey;
+    $("#gemini-save").textContent = c.hasGeminiKey ? "Test en bewaar opnieuw" : "Test en bewaar";
+    $("#gemini-key").placeholder = c.hasGeminiKey ? "Leeg laten om de huidige sleutel te houden" : "AIza…";
+    const models = $("#gemini-model");
+    if (!models.options.length) {
+      for (const m of c.geminiModels) models.append(new Option(m.label, m.id));
+      if (!c.geminiModels.some((m) => m.id === c.geminiModel)) models.append(new Option(c.geminiModel, c.geminiModel));
+    }
+    models.value = c.geminiModel;
   }
-  models.value = c.geminiModel;
   try {
     const usage = await api("/api/usage");
     $("#usage-bars").replaceChildren(
@@ -1188,6 +1208,13 @@ async function saveGemini(event) {
 async function init() {
   state.config = await api("/api/config");
   showSetupWarning(state.config);
+  if (state.config.online) {
+    $("#logout").hidden = false;
+    $("#logout").addEventListener("click", async () => {
+      await api("/api/logout", { method: "POST" }).catch(() => {});
+      location.reload();
+    });
+  }
   $("#google-form").addEventListener("submit", saveGoogleKey);
   $("#open-share").addEventListener("click", openShareDialog);
   $("#share-create").addEventListener("click", createShare);
@@ -1261,7 +1288,7 @@ async function init() {
   };
   window.addEventListener("hashchange", openFromHash);
   openFromHash();
-  if (!location.hash && (!state.config.hasGoogleKey || !state.config.hasGeminiKey)) switchView("settings");
+  if (!location.hash && !state.config.online && (!state.config.hasGoogleKey || !state.config.hasGeminiKey)) switchView("settings");
 }
 
 init().catch((err) => {

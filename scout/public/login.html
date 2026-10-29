@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Frame Finder · Inloggen</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=MuseoModerno:wght@600;700&family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="login">
+    <div class="brand login-brand" role="img" aria-label="Frame Finder">
+      <span>FRAME</span><i class="pill" aria-hidden="true"><b></b></i><span>FINDER</span>
+    </div>
+    <form id="login-form" class="panel login-form">
+      <p class="hint">Frame Finder is in testfase. Log in met het wachtwoord dat je kreeg.</p>
+      <label class="field">
+        <span>Wachtwoord</span>
+        <input type="password" id="password" autocomplete="current-password" required autofocus>
+      </label>
+      <button type="submit" class="primary">Inloggen</button>
+      <p id="login-error" class="error" role="alert" hidden></p>
+    </form>
+  </main>
+  <script type="module" src="/login.js"></script>
+</body>
+</html>

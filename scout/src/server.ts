@@ -13,6 +13,7 @@ import { COLOR_PRESETS, EXTRA_FILTERS, LOCATION_TYPES, SHOOT_TYPES } from "./pre
 import { ReferenceStore, SearchStore, ShareStore } from "./store.ts";
 import { type ContactMaps, lookupContact } from "./contact.ts";
 import { Tunnel } from "./tunnel.ts";
+import { clientIp, isHttps, PasswordAuth } from "./auth.ts";
 import { randomBytes } from "node:crypto";
 import { ResultPatchSchema, type SavedSearch, type ScoredLocation, type SearchRequest, SearchRequestSchema, type Share } from "./types.ts";
 import { meteredContactMaps, meteredMaps, UsageMeter } from "./usage.ts";
@@ -76,6 +77,13 @@ export interface AppOptions {
   /** Overrides the owner/contact lookups and the internet link; used by tests. */
   contactMaps?: ContactMaps;
   tunnel?: Pick<Tunnel, "url" | "findBinary" | "install" | "start" | "stop">;
+  /**
+   * Online version: everyone logs in with this password, the keys come from
+   * the server's environment, and the settings screen can't change them.
+   */
+  password?: string;
+  /** A separate key for the Street View embed in the browser (Maps Embed API only, restricted to the site's address). */
+  embedKey?: string;
 }
 
 const VoteSchema = z.object({
@@ -115,8 +123,13 @@ function publicResult(r: ScoredLocation) {
  * rebinding) and a write must come from the same origin (against other
  * websites posting to localhost).
  */
-function isTrustedRequest(req: IncomingMessage): boolean {
+function isTrustedRequest(req: IncomingMessage, online: boolean): boolean {
   const host = req.headers.host ?? "";
+  if (online) {
+    // Login is checked separately; here only that a write comes from our own page.
+    if (req.method === "GET" || req.method === "HEAD") return true;
+    return req.headers.origin === `https://${host}` || req.headers.origin === `http://${host}`;
+  }
   const hostname = host.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
   if (!["localhost", "127.0.0.1", "::1"].includes(hostname)) return false;
   if (req.method === "GET" || req.method === "HEAD") return true;
@@ -167,6 +180,10 @@ export function createApp(options: AppOptions): http.Server {
   const references = new ReferenceStore(options.dataDir);
   const shares = new ShareStore(options.dataDir);
   const tunnel = options.tunnel ?? new Tunnel(path.join(ROOT, "bin"));
+  const auth = options.password ? new PasswordAuth(options.password) : null;
+  const online = auth !== null;
+  /** Online the main key never goes to the browser: only a separate, restricted embed key. */
+  const embedKey = () => options.embedKey ?? (online ? null : (googleKey ?? null));
   // Can change at runtime through the settings screen.
   let googleKey = options.googleKey;
   const envFile = options.envFile ?? path.join(ROOT, ".env");
@@ -284,7 +301,7 @@ export function createApp(options: AppOptions): http.Server {
           title: share.title,
           message: share.message,
           createdAt: share.createdAt,
-          embedKey: googleKey ?? null,
+          embedKey: embedKey(),
           results: shared.map((r) => ({ ...publicResult(r), votes: share.votes[r.id] ?? [] })),
         });
         return;
@@ -315,7 +332,39 @@ export function createApp(options: AppOptions): http.Server {
       throw new HttpError(404, "Niet gevonden");
     }
 
-    if (parts[0] === "api" && !isTrustedRequest(req)) throw new HttpError(403, "Alleen toegankelijk vanaf deze computer");
+    if (auth) {
+      // POST /api/login, POST /api/logout
+      if (parts[0] === "api" && (parts[1] === "login" || parts[1] === "logout") && method === "POST") {
+        if (!isTrustedRequest(req, true)) throw new HttpError(403, "Niet toegestaan");
+        if (parts[1] === "logout") {
+          res.setHeader("Set-Cookie", auth.clearCookie(isHttps(req)));
+          sendJson(res, 200, { ok: true });
+          return;
+        }
+        const ip = clientIp(req);
+        if (auth.isBlocked(ip)) throw new HttpError(429, "Te veel foute pogingen. Probeer het over een kwartier opnieuw.");
+        const body = (await readJson(req, 2_000)) as { password?: unknown };
+        const session = auth.login(typeof body.password === "string" ? body.password : "", ip);
+        if (!session) throw new HttpError(401, "Fout wachtwoord.");
+        res.setHeader("Set-Cookie", auth.cookie(session, isHttps(req)));
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      if (!auth.isLoggedIn(req)) {
+        if (parts[0] === "api") throw new HttpError(401, "Log eerst in.");
+        // The pages of the app itself show the login form instead; styles and scripts stay reachable.
+        if ([".html", ""].includes(path.extname(url.pathname))) {
+          res.writeHead(200, { "Content-Type": MIME[".html"], "Cache-Control": "no-store" });
+          res.end(await readFile(path.join(PUBLIC_DIR, "login.html")));
+          return;
+        }
+      }
+    }
+
+    if (parts[0] === "api" && !isTrustedRequest(req, online)) throw new HttpError(403, "Alleen toegankelijk vanaf deze computer");
+    if (online && parts[0] === "api" && (parts[1] === "settings" || parts[1] === "tunnel") && method !== "GET") {
+      throw new HttpError(403, "In de online versie staan de sleutels op de server. Pas ze daar aan.");
+    }
 
     if (parts[0] !== "api") {
       const file = path.join(PUBLIC_DIR, url.pathname === "/" ? "index.html" : path.normalize(url.pathname));
@@ -332,6 +381,7 @@ export function createApp(options: AppOptions): http.Server {
     if (parts[1] === "config" && method === "GET") {
       sendJson(res, 200, {
         version: VERSION,
+        online,
         ready: Boolean(options.deps || (googleKey && engine() !== "claude-app")),
         engine: engine(),
         hasGoogleKey: Boolean(googleKey),
@@ -342,7 +392,7 @@ export function createApp(options: AppOptions): http.Server {
         hasAnthropicKey: options.hasAnthropicCredentials,
         // For the Street View embed in the browser. The server only listens on
         // localhost by default; restrict the key in Google Cloud as well.
-        embedKey: googleKey ?? null,
+        embedKey: embedKey(),
         locationTypes: LOCATION_TYPES.map(({ id, label }) => ({ id, label })),
         colorPresets: COLOR_PRESETS.map(({ id, label, swatches }) => ({ id, label, swatches })),
         extraFilters: EXTRA_FILTERS,
@@ -692,6 +742,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const port = Number(process.env.PORT ?? 4173);
   const host = process.env.HOST ?? "127.0.0.1";
   const dataDir = process.env.SCOUT_DATA_DIR ?? path.join(ROOT, "data");
+  if (!["127.0.0.1", "localhost", "::1"].includes(host) && !process.env.FRAMEFINDER_PASSWORD) {
+    // Reachable from other machines without a password would let anyone use the keys.
+    console.error("HOST staat open voor andere computers, maar FRAMEFINDER_PASSWORD ontbreekt. Ik start niet.");
+    process.exit(1);
+  }
   const app = createApp({
     dataDir,
     googleKey: process.env.GOOGLE_MAPS_API_KEY,
@@ -699,6 +754,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     geminiKey: process.env.GEMINI_API_KEY || undefined,
     geminiModel: process.env.GEMINI_MODEL || undefined,
     meter: new UsageMeter(dataDir, { enforced: process.env.SCOUT_FREE_LIMITS !== "off" }),
+    password: process.env.FRAMEFINDER_PASSWORD || undefined,
+    embedKey: process.env.GOOGLE_EMBED_KEY || undefined,
   });
   const openBrowser = process.argv.includes("--open");
   start(app, port, host, openBrowser);
