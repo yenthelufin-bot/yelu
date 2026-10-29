@@ -2,7 +2,7 @@
 
 Vindt fotoshootlocaties voor je, zodat je niet uren door Google Maps en Street View hoeft te scrollen. **Gratis te gebruiken.**
 
-Je geeft een gemeente of stad op, met een straal in km. Je kiest het soort plek, de kleursetting en eventueel extra wensen. Location Scout zoekt dan kandidaat-plekken en Claude bekijkt elke plek in Street View. Je krijgt een gerangschikte lijst terug met:
+Je geeft een gemeente of stad op, met een straal in km. Je kiest het soort plek, de kleursetting en eventueel extra wensen. Location Scout zoekt dan kandidaat-plekken, bekijkt elke plek in Street View en laat de foto's beoordelen door Google Gemini. Alles gebeurt in je browser. Je krijgt een gerangschikte lijst terug met:
 
 - een score van 0 tot 100 en een korte beschrijving van de plek als shootlocatie;
 - sterke punten en aandachtspunten (hekken, verkeer, rommel, …);
@@ -14,7 +14,7 @@ Markeer favorieten, wijs plekken af en schrijf notities (bv. "toestemming vragen
 
 ## Waarom het gratis is
 
-- **Claude** bekijkt de beelden in de **Claude desktop-app**, binnen je eigen abonnement. Location Scout koppelt zich daaraan als hulpmiddel (een "MCP-server"), dus er is geen betaalde API-sleutel nodig. Het telt wel mee voor de gebruikslimieten van je abonnement. Een zoektocht van 20 plekken is ongeveer één flink gesprek.
+- **Gemini** beoordeelt de foto's met de **gratis versie** van Google. Die heeft een limiet per minuut en per dag; Location Scout wacht vanzelf als Google dat vraagt en stopt netjes bij de daglimiet (die gaat rond 9 uur Belgische tijd opnieuw open). Je actuele limieten zie je in [Google AI Studio](https://aistudio.google.com) bij *Usage*. Let op: Google mag gratis gebruik inzetten om zijn modellen te verbeteren.
 - **Google** geeft elke maand een gratis hoeveelheid per dienst: 10.000 Street View-beelden, 10.000 keer een plaats opzoeken en 5.000 Places-zoekopdrachten. Het controleren of er Street View is en de 360°-weergave zijn altijd gratis. Location Scout houdt bij hoeveel je deze maand gebruikt hebt en **stopt vóór die grens**, met een kleine marge. Je betaalt dus niets, ook al vraagt Google bij het aanmaken van de sleutel een bankkaart.
 - Een zoektocht van 20 plekken gebruikt zo'n 80 Street View-beelden. Daarmee kun je ruim 100 zoektochten per maand doen.
 - **OpenStreetMap** is volledig gratis.
@@ -26,7 +26,7 @@ Markeer favorieten, wijs plekken af en schrijf notities (bv. "toestemming vragen
    - **OpenStreetMap**: plekken die Google niet als "plaats" kent, zoals industriegebieden, ruïnes, leegstaande gebouwen, silo's, bruggen en bossen.
    - **Steekproef**: gelijk verspreide punten over de hele zone. Zo vind je ook gewone straten en landwegen die nergens een naam hebben.
 2. **Street View-dekking controleren** (gratis) en de plekken met een panorama houden.
-3. **Claude bekijkt** per plek 3 à 4 kijkrichtingen en geeft een score, palet en uitleg.
+3. **Gemini bekijkt** per plek 3 à 4 kijkrichtingen en geeft een score, palet en uitleg.
 4. De resultaten verschijnen op de **resultatenpagina** in je browser.
 
 ## Installatie
@@ -50,9 +50,10 @@ De eerste keer worden de onderdelen geïnstalleerd; dat duurt een minuutje. Daar
 
 De app opent de eerste keer op **Instellingen**:
 
-1. **Google-sleutel.** De pagina legt stap voor stap uit hoe je die aanmaakt, met directe links naar de vier API's. Plak hem en klik op **Test en bewaar**. De app test hem meteen bij Google en zegt wat er eventueel nog ontbreekt.
-2. **Koppelen aan de Claude-app.** Eén klik. Je bestaande Claude-instellingen blijven behouden, met een back-up.
-3. Sluit de Claude desktop-app **volledig** af en open ze opnieuw.
+1. **Google-sleutel** (voor kaarten en Street View). De pagina legt stap voor stap uit hoe je die aanmaakt, met directe links naar de vier API's. Plak hem en klik op **Test en bewaar**. De app test hem meteen bij Google en zegt wat er eventueel nog ontbreekt.
+2. **Gemini-sleutel** (voor het beoordelen). Maak die gratis aan op [aistudio.google.com/apikey](https://aistudio.google.com/apikey). **Kies daarbij een nieuw project, zonder facturatie**, dus niet het project van stap 1. Zo blijft Gemini gratis. Plak hem en klik op **Test en bewaar**; de app doet een mini-testoproep om te zien of sleutel en model werken.
+
+Daarna zoek je meteen bij **Nieuwe zoektocht**.
 
 Onder Instellingen zie je ook hoeveel van het gratis Google-gebruik je deze maand al gebruikt hebt.
 
@@ -66,15 +67,15 @@ Gebruik je Claude Code in deze repo? Dan is de koppeling al ingesteld in `.mcp.j
 
 ## Gebruiken
 
-**Rechtstreeks in Claude.** Typ in de Claude-app bijvoorbeeld:
+Dubbelklik op het startbestand. Kies bij **Nieuwe zoektocht** je plaats, straal, type locatie, kleuren en wensen, en klik op **Zoek locaties**. Je ziet de resultaten binnenkomen terwijl de app zoekt. Met de gratis versie van Gemini duurt een zoektocht van 20 plekken een paar minuten. Onder *Eerdere zoektochten* vind je alles terug.
 
-> Zoek industriële locaties aan het water rond Gent, 10 km, in roest- en staaltinten, voor een modeshoot. Weinig mensen in beeld.
+### Optioneel: ook vanuit de Claude-app
 
-Claude zoekt de plekken, bekijkt ze één voor één en geeft je de beste met een link naar de resultatenpagina.
+Onder **Instellingen** kun je Location Scout ook koppelen aan de Claude desktop-app. Dan kun je in een gesprek typen, bijvoorbeeld:
 
-**Via de resultatenpagina.** Zolang de Claude-app draait, staat die pagina op **http://localhost:4173**. Daar stel je je zoektocht in met knoppen en een kaart, en klik je op **Kopieer opdracht voor Claude**. Plak de opdracht in de Claude-app. De pagina toont live hoe Claude vordert. Onder *Eerdere zoektochten* vind je alles terug.
+> Zoek industriële locaties aan het water rond Gent, 10 km, in roest- en staaltinten.
 
-Wil je de pagina openen zonder de Claude-app? Dubbelklik dan op het startbestand.
+Claude bekijkt de foto's dan zelf, binnen je abonnement. Dit werkt **alleen in de Claude desktop-app** (niet op claude.ai in de browser of op je telefoon), en pas nadat je de app na het koppelen **volledig** hebt afgesloten en opnieuw geopend.
 
 ## Tips
 
@@ -91,9 +92,9 @@ Wil je de pagina openen zonder de Claude-app? Dubbelklik dan op het startbestand
 - De Street View-beelden worden alleen in het geheugen gehouden zolang de app draait; zo vragen de voorwaarden van Google het. Bij een oudere zoektocht zie je in de plaats daarvan de live 360°-weergave.
 - Zoektochten en de maandteller staan in `scout/data/`.
 
-## Optioneel: zonder Claude-app, via de Claude API (betaald)
+## Optioneel: Claude via de API (betaald)
 
-Zet je `ANTHROPIC_API_KEY` in `.env`, dan verschijnt op de resultatenpagina een knop **Start hier**. Daarmee loopt de hele zoektocht op de pagina zelf, zonder Claude-app. Dat kost wel geld per gebruik: ongeveer $0,03 à $0,05 per plek. Google blijft ook dan binnen het gratis gebruik.
+Staat er geen Gemini-sleutel maar wel een `ANTHROPIC_API_KEY` in `.env`, dan beoordeelt Claude de foto's via de API. Dat kost geld per gebruik: ongeveer $0,03 à $0,05 per plek. Google blijft ook dan binnen het gratis gebruik.
 
 ## Ontwikkelen
 
@@ -104,7 +105,8 @@ npm run typecheck  # TypeScript-controle
 
 De code is TypeScript en draait rechtstreeks met Node, zonder bouwstap:
 
-- `src/mcp.ts`: de koppeling met de Claude-app
+- `src/gemini.ts`: de beoordeling door Gemini (gratis versie)
+- `src/mcp.ts`: de optionele koppeling met de Claude-app
 - `src/pipeline.ts`: het zoekproces
 - `src/usage.ts`: de bewaking van het gratis Google-gebruik
 - `src/presets.ts`: types, kleuren en extra wensen. Hier voeg je eenvoudig een nieuw type locatie toe.

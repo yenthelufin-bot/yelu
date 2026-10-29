@@ -171,7 +171,7 @@ const refreshEstimate = debounce(async () => {
     const { usage, free } = await api("/api/estimate", { method: "POST", body: JSON.stringify(req) });
     const images = free.items.find((i) => i.sku === "streetViewImage");
     const left = Math.max(0, images.limit - images.used);
-    el.textContent = `Gratis: deze zoektocht gebruikt hooguit ${usage.streetViewImages} Street View-beelden. Nog ${left.toLocaleString("nl-BE")} van ${images.limit.toLocaleString("nl-BE")} gratis deze maand.`;
+    el.textContent = `Gratis: hooguit ${usage.streetViewImages} Street View-beelden (nog ${left.toLocaleString("nl-BE")} van ${images.limit.toLocaleString("nl-BE")} deze maand) en ${req.maxCandidates} beoordelingen door Gemini.`;
     el.classList.toggle("usage-low", left < usage.streetViewImages);
   } catch {
     el.textContent = "Gratis Google-gebruik: —";
@@ -661,7 +661,7 @@ function switchView(view) {
 
 function showSetupWarning(c) {
   const banner = $("#setup-warning");
-  const todo = [!c.hasGoogleKey && "je Google-sleutel invullen", !c.claudeLinked && "koppelen aan de Claude-app"].filter(Boolean);
+  const todo = [!c.hasGoogleKey && "je Google-sleutel", !c.hasGeminiKey && "je Gemini-sleutel"].filter(Boolean);
   banner.hidden = !todo.length;
   $("#settings-dot").hidden = !todo.length;
   if (!todo.length) return;
@@ -699,6 +699,17 @@ async function renderSettings() {
   $("#google-status").textContent = c.hasGoogleKey ? "✓ Ingesteld en getest" : "Nog niet ingesteld";
   $("#google-help").open = !c.hasGoogleKey;
   $("#google-save").textContent = c.hasGoogleKey ? "Vervang sleutel" : "Test en bewaar";
+  $("#step-gemini").classList.toggle("done", c.hasGeminiKey);
+  $("#gemini-status").textContent = c.hasGeminiKey ? `✓ Ingesteld en getest (${c.geminiModel})` : "Nog niet ingesteld";
+  $("#gemini-help").open = !c.hasGeminiKey;
+  $("#gemini-save").textContent = c.hasGeminiKey ? "Test en bewaar opnieuw" : "Test en bewaar";
+  $("#gemini-key").placeholder = c.hasGeminiKey ? "Leeg laten om de huidige sleutel te houden" : "AIza…";
+  const models = $("#gemini-model");
+  if (!models.options.length) {
+    for (const m of c.geminiModels) models.append(new Option(m.label, m.id));
+    if (!c.geminiModels.some((m) => m.id === c.geminiModel)) models.append(new Option(c.geminiModel, c.geminiModel));
+  }
+  models.value = c.geminiModel;
   $("#step-claude").classList.toggle("done", c.claudeLinked);
   $("#claude-status").textContent = c.claudeLinked ? "✓ Gekoppeld" : "Nog niet gekoppeld";
   $("#claude-link").textContent = c.claudeLinked ? "Opnieuw koppelen" : "Koppel aan de Claude-app";
@@ -757,6 +768,36 @@ async function saveGoogleKey(event) {
   }
 }
 
+async function saveGemini(event) {
+  event.preventDefault();
+  const input = $("#gemini-key");
+  const key = input.value.trim();
+  const out = $("#gemini-result");
+  if (!key && !state.config.hasGeminiKey) return showResult(out, "bad", "Plak eerst je Gemini-sleutel in het veld.");
+  const button = $("#gemini-save");
+  button.disabled = true;
+  button.textContent = "Testen bij Gemini…";
+  try {
+    const r = await api("/api/settings/gemini", { method: "POST", body: JSON.stringify({ key, model: $("#gemini-model").value }) });
+    if (r.saved) {
+      input.value = "";
+      showResult(out, "good", "✓ Gemini werkt en is bewaard. Je kunt nu zoeken bij Nieuwe zoektocht.");
+      state.config = await api("/api/config");
+      showSetupWarning(state.config);
+    } else {
+      showResult(out, "bad", "Gemini aanvaardt dit nog niet. Niets bewaard.", [
+        ...r.problems,
+        "Kopieer de sleutel opnieuw uit AI Studio, of probeer het andere model.",
+      ]);
+    }
+  } catch (err) {
+    showResult(out, "bad", err.message);
+  } finally {
+    button.disabled = false;
+    renderSettings();
+  }
+}
+
 async function linkClaude() {
   const out = $("#claude-result");
   try {
@@ -777,14 +818,15 @@ async function init() {
   state.config = await api("/api/config");
   showSetupWarning(state.config);
   $("#google-form").addEventListener("submit", saveGoogleKey);
+  $("#gemini-form").addEventListener("submit", saveGemini);
   $("#claude-link").addEventListener("click", linkClaude);
   renderForm();
   renderCustomColors();
 
   $("#search-form").addEventListener("submit", startSearch);
   $("#copy-prompt").addEventListener("click", copyPrompt);
-  // A paid alternative, only offered when an Anthropic API key is configured.
-  $("#start").hidden = state.config.engine !== "api";
+  // The Claude app is an optional second way to search.
+  $("#copy-prompt").hidden = !state.config.claudeLinked;
   $("#place").addEventListener("input", () => {
     geocodePreview();
     refreshEstimate();
@@ -818,7 +860,8 @@ async function init() {
   }
   document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => switchView(b.dataset.view)));
 
-  if (state.config.engine === "claude-app") $("#max-candidates").max = "40";
+  // Free tiers: keep searches small enough for the daily limits.
+  if (state.config.engine !== "api") $("#max-candidates").max = state.config.engine === "gemini" ? "60" : "40";
   refreshEstimate();
   const openFromHash = () => {
     const match = location.hash.match(/^#zoektocht\/([0-9a-f-]{36})$/);
@@ -826,7 +869,7 @@ async function init() {
   };
   window.addEventListener("hashchange", openFromHash);
   openFromHash();
-  if (!location.hash && (!state.config.hasGoogleKey || !state.config.claudeLinked)) switchView("settings");
+  if (!location.hash && (!state.config.hasGoogleKey || !state.config.hasGeminiKey)) switchView("settings");
 }
 
 init().catch((err) => {

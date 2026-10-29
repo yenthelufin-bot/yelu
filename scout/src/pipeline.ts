@@ -87,6 +87,8 @@ export function headingsFor(candidate: Candidate, panoLocation: LatLng): number[
  * only fail again or cost money.
  */
 export function isFatal(err: unknown): boolean {
+  if ((err as { fatal?: unknown })?.fatal === true) return true;
+  if ((err as { fatal?: unknown })?.fatal === false) return false;
   const status = (err as { status?: unknown })?.status;
   if (status === 401 || status === 402 || status === 403) return true;
   const message = err instanceof Error ? err.message : "";
@@ -283,7 +285,7 @@ export async function runSearch(
     update();
 
     const brief = buildBrief(req);
-    emit({ type: "status", message: `${panos.length} plekken bekijken met Street View en Claude…` });
+    emit({ type: "status", message: `${panos.length} plekken bekijken in Street View en laten beoordelen…` });
     emit({ type: "progress", analysed: 0, total: panos.length, cost: search.cost });
 
     await mapLimit(panos, CONCURRENCY, signal, async (pano) => {

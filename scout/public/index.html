@@ -91,17 +91,16 @@
 
       <p id="estimate" class="hint">Gratis Google-gebruik: —</p>
       <div class="submit-row">
-        <button type="button" id="copy-prompt" class="primary">Kopieer opdracht voor Claude</button>
-        <button type="submit" id="start" class="ghost" hidden>Start hier (Claude API, betaald)</button>
+        <button type="submit" id="start" class="primary">Zoek locaties</button>
+        <button type="button" id="copy-prompt" class="ghost small" hidden>Kopieer als opdracht voor de Claude-app</button>
       </div>
-      <p id="copy-help" class="hint">Plak de opdracht in de Claude-app. Claude zoekt en bekijkt de plekken binnen je abonnement en zet de resultaten hier.</p>
       <p id="form-error" class="error" role="alert" hidden></p>
     </form>
 
     <section id="results-panel" class="panel results">
       <div id="empty-state" class="empty">
         <h2>Laat de zoektocht het scrollen doen</h2>
-        <p>Kies links een zone, het soort plek en de kleuren. Kopieer de opdracht en plak ze in de Claude-app. Claude zoekt kandidaten via Google Places, OpenStreetMap en een steekproef van straten, en bekijkt elke plek in Street View.</p>
+        <p>Kies links een zone, het soort plek en de kleuren, en klik op <strong>Zoek locaties</strong>. De app zoekt kandidaten via Google Places, OpenStreetMap en een steekproef van straten, bekijkt elke plek in Street View en laat de foto's beoordelen.</p>
         <p>Je krijgt een gerangschikte lijst terug met scores, kleurpalet en lichtadvies. Bewaar je favorieten en exporteer ze naar Google My Maps.</p>
       </div>
 
@@ -187,22 +186,54 @@
       <div id="google-result" class="result" role="status" hidden></div>
     </section>
 
-    <section class="panel step" id="step-claude">
+    <section class="panel step" id="step-gemini">
       <div class="step-head">
         <span class="step-num">2</span>
         <div>
-          <h2>Koppelen aan de Claude-app</h2>
-          <p class="step-status" id="claude-status"></p>
+          <h2>Gemini-sleutel (beoordeelt de foto's)</h2>
+          <p class="step-status" id="gemini-status"></p>
         </div>
       </div>
-      <p class="hint">Claude bekijkt de Street View-beelden in de Claude desktop-app, gratis binnen je abonnement. Deze knop zet Location Scout bij de tools van de Claude-app. Je andere instellingen blijven behouden.</p>
-      <button type="button" class="primary" id="claude-link">Koppel aan de Claude-app</button>
-      <div id="claude-result" class="result" role="status" hidden></div>
+      <details id="gemini-help">
+        <summary>Hoe maak ik een gratis Gemini-sleutel aan? (± 2 minuten)</summary>
+        <ol class="howto">
+          <li>Ga naar <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> en log in met je Google-account.</li>
+          <li>Klik op <strong>Create API key</strong> (API-sleutel maken).</li>
+          <li><strong>Belangrijk:</strong> kies daarbij een <strong>nieuw project</strong>, niet het project van stap 1. Koppel aan dat nieuwe project géén facturatie: zonder facturatie blijft Gemini op de gratis versie en kan het je nooit iets kosten.</li>
+          <li>Kopieer de sleutel en plak hem hieronder.</li>
+        </ol>
+        <p class="hint">De gratis versie heeft een limiet per minuut en per dag. Location Scout wacht vanzelf als Google dat vraagt en stopt netjes bij de daglimiet. In AI Studio zie je bij <em>Usage</em> je actuele limieten.</p>
+      </details>
+      <form id="gemini-form" class="key-form" autocomplete="off">
+        <label class="field">
+          <span>Plak hier je Gemini-sleutel</span>
+          <input id="gemini-key" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off">
+        </label>
+        <label class="field model-field">
+          <span>Model</span>
+          <select id="gemini-model"></select>
+        </label>
+        <button type="submit" class="primary" id="gemini-save">Test en bewaar</button>
+      </form>
+      <div id="gemini-result" class="result" role="status" hidden></div>
     </section>
+
+    <details class="panel step optional" id="step-claude">
+      <summary class="step-head">
+        <span class="step-num">+</span>
+        <div>
+          <h2>Optioneel: ook zoeken vanuit de Claude-app</h2>
+          <p class="step-status" id="claude-status"></p>
+        </div>
+      </summary>
+      <p class="hint">Niet nodig om in de browser te zoeken. Hiermee kun je ook in de Claude desktop-app vragen om locaties te zoeken; Claude bekijkt de foto's dan binnen je abonnement. Na het koppelen moet je de Claude-app volledig afsluiten en opnieuw openen.</p>
+      <button type="button" class="ghost" id="claude-link">Koppel aan de Claude-app</button>
+      <div id="claude-result" class="result" role="status" hidden></div>
+    </details>
 
     <section class="panel step">
       <div class="step-head">
-        <span class="step-num">3</span>
+        <span class="step-num">€0</span>
         <div>
           <h2>Gratis gebruik deze maand</h2>
           <p class="step-status">Location Scout stopt vóór de gratis grens van Google, dus je betaalt niets.</p>

@@ -323,7 +323,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const deps: SpotDeps | null = key ? { maps: meteredMaps(new GoogleMaps(key), meter), overpass: queryOverpass } : null;
 
   // Also serve the results page, unless it already runs separately.
-  const app = createApp({ dataDir, googleKey: key, hasAnthropicCredentials: false, store, images, meter });
+  const app = createApp({
+    dataDir,
+    googleKey: key,
+    hasAnthropicCredentials: false,
+    geminiKey: process.env.GEMINI_API_KEY || undefined,
+    geminiModel: process.env.GEMINI_MODEL || undefined,
+    store,
+    images,
+    meter,
+  });
   app.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code !== "EADDRINUSE") console.error("Webapp kon niet starten:", err.message);
   });

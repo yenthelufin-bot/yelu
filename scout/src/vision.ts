@@ -152,27 +152,31 @@ export class LocationJudge {
     if (response.stop_reason === "refusal") return result(null, "geweigerd door het model");
     if (response.stop_reason === "max_tokens") return result(null, "antwoord afgebroken");
     const text = response.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    let parsed: z.infer<typeof AnswerSchema>;
-    try {
-      parsed = AnswerSchema.parse(JSON.parse(text));
-    } catch {
-      return result(null, "onleesbaar antwoord");
-    }
-    const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
-    return result(
-      {
-        usable: parsed.usable,
-        score: clamp(parsed.score),
-        typeMatch: parsed.type_match,
-        colorScore: parsed.color_score === null ? null : clamp(parsed.color_score),
-        palette: parsed.palette.filter((p) => /^#[0-9a-f]{6}$/i.test(p.hex)).slice(0, 5),
-        bestViewIndex: Math.max(0, Math.min(views.length - 1, parsed.best_view_index)),
-        summary: parsed.summary,
-        strengths: parsed.strengths.slice(0, 5),
-        concerns: parsed.concerns.slice(0, 5),
-        tags: parsed.tags.slice(0, 6),
-      },
-      null,
-    );
+    const assessment = parseAssessment(text, views.length);
+    return assessment ? result(assessment, null) : result(null, "onleesbaar antwoord");
   }
+}
+
+/** Validates a model's JSON answer and clamps it into range; null when it can't be read. */
+export function parseAssessment(text: string, viewCount: number): Assessment | null {
+  let parsed: z.infer<typeof AnswerSchema>;
+  try {
+    // Some models wrap JSON in a ```json fence despite being asked not to.
+    parsed = AnswerSchema.parse(JSON.parse(text.trim().replace(/^```(?:json)?\s*|\s*```$/g, "")));
+  } catch {
+    return null;
+  }
+  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+  return {
+    usable: parsed.usable,
+    score: clamp(parsed.score),
+    typeMatch: parsed.type_match,
+    colorScore: parsed.color_score === null ? null : clamp(parsed.color_score),
+    palette: parsed.palette.filter((p) => /^#[0-9a-f]{6}$/i.test(p.hex)).slice(0, 5),
+    bestViewIndex: Math.max(0, Math.min(viewCount - 1, parsed.best_view_index)),
+    summary: parsed.summary,
+    strengths: parsed.strengths.slice(0, 5),
+    concerns: parsed.concerns.slice(0, 5),
+    tags: parsed.tags.slice(0, 6),
+  };
 }

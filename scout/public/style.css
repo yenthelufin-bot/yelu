@@ -324,6 +324,11 @@ button.ghost:hover, a.ghost:hover { border-color: var(--accent); }
 .api-list { margin: 0.35rem 0 0; }
 .key-form { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; margin-top: 0.75rem; }
 .key-form .field { flex: 1 1 260px; margin: 0; }
+.key-form .model-field { flex: 1 1 200px; }
+details.step summary { list-style: none; cursor: pointer; margin-bottom: 0; }
+details.step summary::-webkit-details-marker { display: none; }
+details.step[open] summary { margin-bottom: 0.75rem; }
+.step-num { font-size: 0.8rem; }
 .result { margin-top: 0.85rem; padding: 0.7rem 0.9rem; border-radius: 8px; font-size: 0.92rem; border: 1px solid var(--line); }
 .result.good { border-color: var(--good); }
 .result.bad { border-color: var(--bad); }

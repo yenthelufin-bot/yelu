@@ -27,6 +27,7 @@ before(async () => {
     envFile,
     claudeConfigFile,
     checkGoogleKey: async (key) => (key === GOOD_KEY ? [] : ["Street View Static API: REQUEST_DENIED"]),
+    checkGemini: async (key, model) => (key === GOOD_KEY && model === "gemini-3.5-flash-lite" ? null : "De Gemini-sleutel is ongeldig."),
   });
   await new Promise<void>((resolve) => app.listen(0, "127.0.0.1", resolve));
   port = (app.address() as AddressInfo).port;
@@ -98,4 +99,23 @@ test("other websites cannot use the API", async () => {
   // The page itself still loads for any host; only the API is guarded.
   const sameOrigin = await fetch(`${base}/api/settings/link-claude`, { method: "POST", headers: { Origin: base } });
   assert.equal(sameOrigin.status, 200);
+});
+
+test("a working Gemini key switches searching to the browser", async () => {
+  const bad = await post("/api/settings/gemini", { key: "AIzaSyWrongKey_000000000000000", model: "gemini-3.5-flash-lite" }).then((r) => r.json());
+  assert.equal(bad.saved, false);
+  assert.doesNotMatch(await readFile(envFile, "utf8"), /GEMINI_API_KEY/);
+
+  const good = await post("/api/settings/gemini", { key: GOOD_KEY, model: "gemini-3.5-flash-lite" }).then((r) => r.json());
+  assert.equal(good.saved, true);
+  const env = await readFile(envFile, "utf8");
+  assert.match(env, new RegExp(`^GEMINI_API_KEY=${GOOD_KEY}$`, "m"));
+  assert.match(env, /^GEMINI_MODEL=gemini-3.5-flash-lite$/m);
+  const config = await fetch(`${base}/api/config`).then((r) => r.json());
+  assert.equal(config.engine, "gemini");
+  assert.equal(config.hasGeminiKey, true);
+  assert.equal(config.ready, true);
+
+  const badModel = await post("/api/settings/gemini", { key: GOOD_KEY, model: "../etc" });
+  assert.equal(badModel.status, 400);
 });

@@ -13,6 +13,7 @@ import { ResultPatchSchema, type SavedSearch, SearchRequestSchema } from "./type
 import { meteredMaps, UsageMeter } from "./usage.ts";
 import { checkKey, claudeConfigPath, isClaudeLinked, linkClaudeDesktop, looksLikeGoogleKey, MCP_SCRIPT, setEnvValue } from "../setup.mjs";
 import { LocationJudge, type ViewImage } from "./vision.ts";
+import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS, GeminiJudge } from "./gemini.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "..");
@@ -46,6 +47,9 @@ export interface AppOptions {
   dataDir: string;
   googleKey: string | undefined;
   hasAnthropicCredentials: boolean;
+  /** Free assessments in the browser, with Google Gemini's free tier. */
+  geminiKey?: string;
+  geminiModel?: string;
   /** Overrides the real API clients; used by tests. */
   deps?: Omit<PipelineDeps, "onImages" | "onUpdate">;
   /** Shared with the Claude link when it hosts this app in the same process. */
@@ -56,6 +60,8 @@ export interface AppOptions {
   envFile?: string;
   claudeConfigFile?: string;
   checkGoogleKey?: (key: string) => Promise<string[]>;
+  /** Returns null when the key and model work, else what is wrong. */
+  checkGemini?: (key: string, model: string) => Promise<string | null>;
 }
 
 /**
@@ -118,6 +124,12 @@ export function createApp(options: AppOptions): http.Server {
   const envFile = options.envFile ?? path.join(ROOT, ".env");
   const claudeConfigFile = options.claudeConfigFile ?? claudeConfigPath();
   const checkGoogleKey = options.checkGoogleKey ?? ((key: string) => checkKey(key));
+  let geminiKey = options.geminiKey;
+  let geminiModel = options.geminiModel || DEFAULT_GEMINI_MODEL;
+  const checkGemini = options.checkGemini ?? ((key: string, model: string) => new GeminiJudge({ apiKey: key, model, minIntervalMs: 0 }).test());
+  /** Who assesses the images of a search started on this page; Gemini first because it is free. */
+  const engine = (): "gemini" | "api" | "claude-app" =>
+    options.deps || geminiKey ? "gemini" : options.hasAnthropicCredentials ? "api" : "claude-app";
 
   const googleMaps = () => {
     if (options.deps) return options.deps.maps;
@@ -128,10 +140,9 @@ export function createApp(options: AppOptions): http.Server {
   const buildDeps = (): Omit<PipelineDeps, "onImages" | "onUpdate"> => {
     if (options.deps) return options.deps;
     const maps = googleMaps();
-    if (!options.hasAnthropicCredentials) {
-      throw new HttpError(503, "Zonder ANTHROPIC_API_KEY start je een zoektocht vanuit de Claude-app. Zie README.");
-    }
-    return { maps, judge: new LocationJudge(), overpass: queryOverpass };
+    if (geminiKey) return { maps, judge: new GeminiJudge({ apiKey: geminiKey, model: geminiModel }), overpass: queryOverpass };
+    if (options.hasAnthropicCredentials) return { maps, judge: new LocationJudge(), overpass: queryOverpass };
+    throw new HttpError(503, "Er is nog geen Gemini-sleutel. Vul hem in bij Instellingen.");
   };
 
   const broadcast = (id: string, event: SearchEvent) => {
@@ -164,10 +175,12 @@ export function createApp(options: AppOptions): http.Server {
     // GET /api/config
     if (parts[1] === "config" && method === "GET") {
       sendJson(res, 200, {
-        ready: Boolean(options.deps || (googleKey && options.hasAnthropicCredentials)),
-        // Without an API key, Claude does the assessments in the Claude app (free with a subscription).
-        engine: options.deps || options.hasAnthropicCredentials ? "api" : "claude-app",
+        ready: Boolean(options.deps || (googleKey && engine() !== "claude-app")),
+        engine: engine(),
         hasGoogleKey: Boolean(googleKey),
+        hasGeminiKey: Boolean(geminiKey),
+        geminiModel,
+        geminiModels: GEMINI_MODELS,
         claudeLinked: isClaudeLinked(claudeConfigFile),
         hasAnthropicKey: options.hasAnthropicCredentials,
         // For the Street View embed in the browser. The server only listens on
@@ -215,6 +228,28 @@ export function createApp(options: AppOptions): http.Server {
       setEnvValue(envFile, "GOOGLE_MAPS_API_KEY", key);
       googleKey = key;
       process.env.GOOGLE_MAPS_API_KEY = key;
+      sendJson(res, 200, { saved: true, problems: [] });
+      return;
+    }
+
+    // POST /api/settings/gemini: test the Gemini key and model, then save them in .env
+    if (parts[1] === "settings" && parts[2] === "gemini" && method === "POST") {
+      const body = (await readJson(req)) as { key?: unknown; model?: unknown };
+      const key = typeof body.key === "string" && body.key.trim() ? body.key.trim() : geminiKey ?? "";
+      const model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : geminiModel;
+      if (!looksLikeGoogleKey(key)) throw new HttpError(400, "Dat lijkt geen Gemini-sleutel. Die bestaat uit letters, cijfers, - en _.");
+      if (!/^[a-z0-9.-]{3,60}$/.test(model)) throw new HttpError(400, "Ongeldige modelnaam.");
+      const problem = await checkGemini(key, model);
+      if (problem) {
+        sendJson(res, 200, { saved: false, problems: [problem] });
+        return;
+      }
+      setEnvValue(envFile, "GEMINI_API_KEY", key);
+      setEnvValue(envFile, "GEMINI_MODEL", model);
+      geminiKey = key;
+      geminiModel = model;
+      process.env.GEMINI_API_KEY = key;
+      process.env.GEMINI_MODEL = model;
       sendJson(res, 200, { saved: true, problems: [] });
       return;
     }
@@ -408,6 +443,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     dataDir,
     googleKey: process.env.GOOGLE_MAPS_API_KEY,
     hasAnthropicCredentials: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
+    geminiKey: process.env.GEMINI_API_KEY || undefined,
+    geminiModel: process.env.GEMINI_MODEL || undefined,
     meter: new UsageMeter(dataDir, { enforced: process.env.SCOUT_FREE_LIMITS !== "off" }),
   });
   app.on("error", (err: NodeJS.ErrnoException) => {
@@ -418,9 +455,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   });
   app.listen(port, host, () => {
     console.log(`Location Scout draait op http://${host === "0.0.0.0" ? "localhost" : host}:${port}`);
-    if (!process.env.GOOGLE_MAPS_API_KEY) console.warn("Let op: GOOGLE_MAPS_API_KEY ontbreekt.");
-    if (!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_AUTH_TOKEN) {
-      console.log("Geen ANTHROPIC_API_KEY: zoektochten start je gratis vanuit de Claude-app (zie README).");
+    if (!process.env.GOOGLE_MAPS_API_KEY || !process.env.GEMINI_API_KEY) {
+      console.log("Nog niet alles ingesteld: open de app in je browser en ga naar Instellingen.");
     }
   });
 }
