@@ -489,8 +489,8 @@ function start(app: http.Server, firstPort: number, host: string, openBrowser: b
     if (err.code !== "EADDRINUSE" || port >= firstPort + 10) throw err;
     const running = await versionOn(port);
     if (running === VERSION) {
-      console.log(`Location Scout draait al op http://localhost:${port}`);
-      if (openBrowser) openInBrowser(`http://localhost:${port}`);
+      console.log(`Location Scout draait al op http://127.0.0.1:${port}`);
+      if (openBrowser) openInBrowser(`http://127.0.0.1:${port}`);
       process.exit(0);
     }
     console.log(`Poort ${port} is bezet${running === "?" ? "" : ` door een oudere versie (${running})`}; ik probeer ${port + 1}.`);
@@ -499,7 +499,8 @@ function start(app: http.Server, firstPort: number, host: string, openBrowser: b
   });
   // One listener for whichever attempt succeeds.
   app.once("listening", () => {
-    const url = `http://localhost:${(app.address() as AddressInfo).port}`;
+    // The exact address we listen on: "localhost" can resolve to IPv6 first on some systems.
+    const url = `http://127.0.0.1:${(app.address() as AddressInfo).port}`;
     console.log(`Location Scout ${VERSION} draait op ${url}`);
     if (!process.env.GOOGLE_MAPS_API_KEY || !process.env.GEMINI_API_KEY) {
       console.log("Nog niet alles ingesteld: de app opent op Instellingen.");

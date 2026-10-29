@@ -12,11 +12,20 @@ const state = {
   center: null,
 };
 
+const OFFLINE_MESSAGE =
+  "Location Scout op je computer reageert niet. Staat het zwarte venster nog open? Zo niet: dubbelklik opnieuw op het startbestand en gebruik het tabblad dat dan opent.";
+
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    ...options,
-    headers: options.body ? { "Content-Type": "application/json" } : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(path, {
+      ...options,
+      headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    });
+  } catch {
+    // The browser could not reach the local server at all ("Failed to fetch").
+    throw new Error(OFFLINE_MESSAGE);
+  }
   const body = res.headers.get("content-type")?.includes("json") ? await res.json() : null;
   if (!res.ok) throw new Error(body?.error ?? `Fout ${res.status}`);
   return body;

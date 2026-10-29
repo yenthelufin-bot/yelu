@@ -44,7 +44,7 @@ Dubbelklik in de map `scout` op:
 - **Mac**: `Start Location Scout.command`. De eerste keer weigert macOS misschien omdat het bestand van internet komt. Klik dan met de rechtermuisknop op het bestand → **Open** → **Open**.
 - **Windows**: `Start Location Scout.bat`. Toont Windows een blauw venster ("Windows heeft uw pc beschermd")? Klik dan op **Meer informatie** → **Toch uitvoeren**.
 
-De eerste keer worden de onderdelen geïnstalleerd; dat duurt een minuutje. Daarna opent Location Scout vanzelf in je browser, op **http://localhost:4173**. Laat het zwarte venster open zolang je de app gebruikt.
+De eerste keer worden de onderdelen geïnstalleerd; dat duurt een minuutje. Daarna opent Location Scout vanzelf in je browser, meestal op **http://127.0.0.1:4173**. Het juiste adres staat ook in het zwarte venster. Laat het zwarte venster open zolang je de app gebruikt.
 
 ### 3. Instellen in de app
 
