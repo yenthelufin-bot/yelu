@@ -10,9 +10,13 @@ import { GoogleMaps } from "./google.ts";
 import { queryOverpass } from "./overpass.ts";
 import { estimateUsage, type PipelineDeps, runSearch, type SearchEvent } from "./pipeline.ts";
 import { COLOR_PRESETS, EXTRA_FILTERS, LOCATION_TYPES, SHOOT_TYPES } from "./presets.ts";
-import { SearchStore } from "./store.ts";
-import { ResultPatchSchema, type SavedSearch, SearchRequestSchema } from "./types.ts";
-import { meteredMaps, UsageMeter } from "./usage.ts";
+import { ReferenceStore, SearchStore, ShareStore } from "./store.ts";
+import { type ContactMaps, lookupContact } from "./contact.ts";
+import { Tunnel } from "./tunnel.ts";
+import { randomBytes } from "node:crypto";
+import { ResultPatchSchema, type SavedSearch, type ScoredLocation, type SearchRequest, SearchRequestSchema, type Share } from "./types.ts";
+import { meteredContactMaps, meteredMaps, UsageMeter } from "./usage.ts";
+import { z } from "zod";
 import { checkKey, claudeConfigPath, cleanKey, isClaudeLinked, linkClaudeDesktop, looksLikeGoogleKey, MCP_SCRIPT, setEnvValue } from "../setup.mjs";
 import { LocationJudge, type ViewImage } from "./vision.ts";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS, GeminiJudge } from "./gemini.ts";
@@ -41,6 +45,10 @@ export class ImageCache {
     views.forEach((v, i) => this.images.set(`${searchId}/${resultId}/${i}`, v.jpeg));
     while (this.images.size > this.maxImages) this.images.delete(this.images.keys().next().value!);
   }
+  putOne(searchId: string, resultId: string, index: number, jpeg: Buffer) {
+    this.images.set(`${searchId}/${resultId}/${index}`, jpeg);
+    while (this.images.size > this.maxImages) this.images.delete(this.images.keys().next().value!);
+  }
   get(searchId: string, resultId: string, index: number) {
     return this.images.get(`${searchId}/${resultId}/${index}`);
   }
@@ -65,6 +73,40 @@ export interface AppOptions {
   checkGoogleKey?: (key: string) => Promise<string[]>;
   /** Returns null when the key and model work, else what is wrong. */
   checkGemini?: (key: string, model: string) => Promise<string | null>;
+  /** Overrides the owner/contact lookups and the internet link; used by tests. */
+  contactMaps?: ContactMaps;
+  tunnel?: Pick<Tunnel, "url" | "findBinary" | "install" | "start" | "stop">;
+}
+
+const VoteSchema = z.object({
+  resultId: z.string().min(1).max(64),
+  vote: z.enum(["up", "down"]),
+  name: z.string().trim().min(1, "Vul je naam in").max(60),
+  comment: z.string().trim().max(500).default(""),
+});
+
+const ShareCreateSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  message: z.string().trim().max(1000).default(""),
+  resultIds: z.array(z.string().max(64)).min(1, "Kies minstens één locatie").max(60),
+});
+
+/** What someone with a share link may see: no notes, contacts or internal details. */
+function publicResult(r: ScoredLocation) {
+  return {
+    id: r.id,
+    name: r.name,
+    summary: r.summary,
+    strengths: r.strengths,
+    concerns: r.concerns,
+    tags: r.tags,
+    palette: r.palette,
+    lightAdvice: r.lightAdvice,
+    access: r.access,
+    panoId: r.panoId,
+    bestHeading: r.bestHeading,
+    location: r.panoLocation,
+  };
 }
 
 /**
@@ -95,12 +137,12 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, maxBytes = 100_000): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 100_000) throw new HttpError(413, "Verzoek te groot");
+    if (size > maxBytes) throw new HttpError(413, "Verzoek te groot");
     chunks.push(chunk);
   }
   try {
@@ -122,6 +164,9 @@ export function createApp(options: AppOptions): http.Server {
   const images = options.images ?? new ImageCache();
   const meter = options.meter ?? new UsageMeter(options.dataDir);
   const running = new Map<string, Running>();
+  const references = new ReferenceStore(options.dataDir);
+  const shares = new ShareStore(options.dataDir);
+  const tunnel = options.tunnel ?? new Tunnel(path.join(ROOT, "bin"));
   // Can change at runtime through the settings screen.
   let googleKey = options.googleKey;
   const envFile = options.envFile ?? path.join(ROOT, ".env");
@@ -140,12 +185,69 @@ export function createApp(options: AppOptions): http.Server {
     return meteredMaps(new GoogleMaps(googleKey), meter);
   };
 
+  const contactMaps = (): ContactMaps => {
+    if (options.contactMaps) return options.contactMaps;
+    if (!googleKey) throw new HttpError(503, "Er is nog geen Google-sleutel. Vul hem in bij Instellingen.");
+    return meteredContactMaps(new GoogleMaps(googleKey), meter);
+  };
+
   const buildDeps = (): Omit<PipelineDeps, "onImages" | "onUpdate"> => {
-    if (options.deps) return options.deps;
+    const loadReference = (refId: string) => references.load(refId);
+    if (options.deps) return { loadReference, ...options.deps };
     const maps = googleMaps();
-    if (geminiKey) return { maps, judge: new GeminiJudge({ apiKey: geminiKey, model: geminiModel }), overpass: queryOverpass };
-    if (options.hasAnthropicCredentials) return { maps, judge: new LocationJudge(), overpass: queryOverpass };
+    if (geminiKey) return { maps, judge: new GeminiJudge({ apiKey: geminiKey, model: geminiModel }), overpass: queryOverpass, loadReference };
+    if (options.hasAnthropicCredentials) return { maps, judge: new LocationJudge(), overpass: queryOverpass, loadReference };
     throw new HttpError(503, "Er is nog geen Gemini-sleutel. Vul hem in bij Instellingen.");
+  };
+
+  /** Starts a search in the background and returns its id. */
+  const startSearch = (request: SearchRequest): string => {
+    const deps = buildDeps();
+    const searchId = randomUUID();
+    const entry: Running = { controller: new AbortController(), listeners: new Set(), search: null };
+    running.set(searchId, entry);
+    void runSearch(
+      request,
+      {
+        ...deps,
+        onImages: (sid, rid, views) => images.put(sid, rid, views),
+        onUpdate: (search) => {
+          entry.search = search;
+          store.save(search).catch((err) => console.error("Opslaan mislukt:", err));
+        },
+      },
+      (event) => broadcast(searchId, event),
+      entry.controller.signal,
+      searchId,
+    )
+      // Only forget the live object once the final state is on disk.
+      .then((search) => store.save(search))
+      .catch((err) => console.error("Opslaan mislukt:", err))
+      .finally(() => {
+        for (const listener of entry.listeners) listener.end();
+        running.delete(searchId);
+      });
+    return searchId;
+  };
+
+  /**
+   * A Street View image of a result: from memory when it was looked at this
+   * session, otherwise fetched again (within the free amount) and kept in memory.
+   */
+  const resultImage = async (searchId: string, result: ScoredLocation, index: number): Promise<Buffer> => {
+    const cached = images.get(searchId, result.id, index);
+    if (cached) return cached;
+    const heading = result.headings[index];
+    if (heading === undefined) throw new HttpError(404, "Beeld niet gevonden");
+    const jpeg = await googleMaps().streetViewImage(result.panoId, heading);
+    images.putOne(searchId, result.id, index, jpeg);
+    return jpeg;
+  };
+  const bestIndex = (r: ScoredLocation) => Math.max(0, r.headings.indexOf(r.bestHeading));
+
+  const sendJpeg = (res: ServerResponse, jpeg: Buffer) => {
+    res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600" });
+    res.end(jpeg);
   };
 
   const broadcast = (id: string, event: SearchEvent) => {
@@ -162,6 +264,56 @@ export function createApp(options: AppOptions): http.Server {
     const url = new URL(req.url ?? "/", "http://localhost");
     const parts = url.pathname.split("/").filter(Boolean);
     const method = req.method ?? "GET";
+
+    // Share pages: the only part reachable from outside this computer (through the internet link).
+    if (parts[0] === "s" && parts[1] && method === "GET") {
+      res.writeHead(200, { "Content-Type": MIME[".html"], "Cache-Control": "no-cache" });
+      res.end(await readFile(path.join(PUBLIC_DIR, "share.html")));
+      return;
+    }
+    if (parts[0] === "api" && parts[1] === "public" && parts[2] === "shares" && parts[3]) {
+      const share = await shares.get(parts[3]).catch(() => null);
+      if (!share) throw new HttpError(404, "Deze link bestaat niet (meer).");
+      const search = await loadSearch(share.searchId).catch(() => null);
+      if (!search) throw new HttpError(404, "Deze selectie bestaat niet meer.");
+      const shared = share.resultIds.map((rid) => search.results.find((r) => r.id === rid)).filter((r) => r !== undefined);
+
+      // GET /api/public/shares/:token
+      if (!parts[4] && method === "GET") {
+        sendJson(res, 200, {
+          title: share.title,
+          message: share.message,
+          createdAt: share.createdAt,
+          embedKey: googleKey ?? null,
+          results: shared.map((r) => ({ ...publicResult(r), votes: share.votes[r.id] ?? [] })),
+        });
+        return;
+      }
+      // POST /api/public/shares/:token/votes
+      if (parts[4] === "votes" && method === "POST") {
+        const vote = VoteSchema.safeParse(await readJson(req, 5_000));
+        if (!vote.success) throw new HttpError(400, vote.error.issues[0].message);
+        if (!share.resultIds.includes(vote.data.resultId)) throw new HttpError(404, "Locatie niet gevonden");
+        const list = (share.votes[vote.data.resultId] ??= []);
+        // One vote per name per spot; voting again changes it.
+        const existing = list.findIndex((v) => v.name.toLowerCase() === vote.data.name.toLowerCase());
+        const entry = { name: vote.data.name, vote: vote.data.vote, comment: vote.data.comment, at: new Date().toISOString() };
+        if (existing >= 0) list[existing] = entry;
+        else if (list.length < 200) list.push(entry);
+        else throw new HttpError(429, "Te veel stemmen op deze locatie");
+        await shares.save(share);
+        sendJson(res, 200, { votes: list });
+        return;
+      }
+      // GET /api/public/shares/:token/image/:rid
+      if (parts[4] === "image" && parts[5] && method === "GET") {
+        const result = shared.find((r) => r.id === parts[5]);
+        if (!result) throw new HttpError(404, "Beeld niet gevonden");
+        sendJpeg(res, await resultImage(search.id, result, bestIndex(result)));
+        return;
+      }
+      throw new HttpError(404, "Niet gevonden");
+    }
 
     if (parts[0] === "api" && !isTrustedRequest(req)) throw new HttpError(403, "Alleen toegankelijk vanaf deze computer");
 
@@ -278,6 +430,51 @@ export function createApp(options: AppOptions): http.Server {
       return;
     }
 
+    // POST /api/references: upload a reference photo (JPEG, base64)
+    if (parts[1] === "references" && !parts[2] && method === "POST") {
+      const body = (await readJson(req, 8_000_000)) as { image?: unknown };
+      const data = typeof body.image === "string" ? body.image.replace(/^data:image\/jpeg;base64,/, "") : "";
+      const jpeg = Buffer.from(data, "base64");
+      if (jpeg.length < 1000 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) throw new HttpError(400, "Dat is geen JPEG-foto.");
+      sendJson(res, 201, { id: await references.save(jpeg) });
+      return;
+    }
+    // GET /api/references/:id
+    if (parts[1] === "references" && parts[2] && method === "GET") {
+      const jpeg = await references.load(parts[2]).catch(() => null);
+      if (!jpeg) throw new HttpError(404, "Foto niet gevonden");
+      sendJpeg(res, jpeg);
+      return;
+    }
+
+    // /api/tunnel: the internet link for share pages
+    if (parts[1] === "tunnel") {
+      if (method === "GET") {
+        sendJson(res, 200, { url: tunnel.url, installed: Boolean(await tunnel.findBinary()) });
+        return;
+      }
+      if (method === "POST") {
+        const body = (await readJson(req)) as { install?: unknown };
+        if (!(await tunnel.findBinary())) {
+          if (body.install !== true) throw new HttpError(409, "cloudflared is nog niet geïnstalleerd.");
+          await tunnel.install().catch((err) => {
+            throw new HttpError(502, `cloudflared downloaden mislukt: ${err instanceof Error ? err.message : String(err)}`);
+          });
+        }
+        const port = req.socket.localPort ?? 4173;
+        const publicUrl = await tunnel.start(port).catch((err) => {
+          throw new HttpError(502, err instanceof Error ? err.message : String(err));
+        });
+        sendJson(res, 200, { url: publicUrl });
+        return;
+      }
+      if (method === "DELETE") {
+        tunnel.stop();
+        sendJson(res, 200, { url: null });
+        return;
+      }
+    }
+
     if (parts[1] !== "searches") throw new HttpError(404, "Niet gevonden");
     const id = parts[2];
 
@@ -301,32 +498,7 @@ export function createApp(options: AppOptions): http.Server {
       if (method === "POST") {
         const parsed = SearchRequestSchema.safeParse(await readJson(req));
         if (!parsed.success) throw new HttpError(400, parsed.error.issues[0].message);
-        const deps = buildDeps();
-        const searchId = randomUUID();
-        const entry: Running = { controller: new AbortController(), listeners: new Set(), search: null };
-        running.set(searchId, entry);
-        void runSearch(
-          parsed.data,
-          {
-            ...deps,
-            onImages: (sid, rid, views) => images.put(sid, rid, views),
-            onUpdate: (search) => {
-              entry.search = search;
-              store.save(search).catch((err) => console.error("Opslaan mislukt:", err));
-            },
-          },
-          (event) => broadcast(searchId, event),
-          entry.controller.signal,
-          searchId,
-        )
-          // Only forget the live object once the final state is on disk.
-          .then((search) => store.save(search))
-          .catch((err) => console.error("Opslaan mislukt:", err))
-          .finally(() => {
-            for (const listener of entry.listeners) listener.end();
-            running.delete(searchId);
-          });
-        sendJson(res, 201, { id: searchId });
+        sendJson(res, 201, { id: startSearch(parsed.data) });
         return;
       }
     }
@@ -382,11 +554,85 @@ export function createApp(options: AppOptions): http.Server {
 
     // GET /api/searches/:id/results/:rid/image/:index
     if (parts[3] === "results" && parts[5] === "image" && method === "GET") {
-      const jpeg = images.get(id, parts[4], Number(parts[6]));
-      if (!jpeg) throw new HttpError(404, "Beeld niet meer in het geheugen");
-      res.writeHead(200, { "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=3600" });
-      res.end(jpeg);
+      const search = await loadSearch(id);
+      const result = search.results.find((r) => r.id === parts[4]);
+      if (!result) throw new HttpError(404, "Resultaat niet gevonden");
+      sendJpeg(res, await resultImage(id, result, Number(parts[6])));
       return;
+    }
+
+    // POST /api/searches/:id/results/:rid/more: "more like this" around a result
+    if (parts[3] === "results" && parts[5] === "more" && method === "POST") {
+      const search = await loadSearch(id);
+      const result = search.results.find((r) => r.id === parts[4]);
+      if (!result) throw new HttpError(404, "Resultaat niet gevonden");
+      const body = (await readJson(req)) as { radiusKm?: unknown };
+      const radiusKm = typeof body.radiusKm === "number" && body.radiusKm >= 0.5 && body.radiusKm <= 50 ? body.radiusKm : 3;
+      const referenceId = await references.save(await resultImage(id, result, bestIndex(result)));
+      const original = search.request;
+      const request = SearchRequestSchema.parse({
+        ...original,
+        mode: "similar",
+        referenceIds: [referenceId],
+        place: `rond ${result.name}`,
+        center: result.panoLocation,
+        radiusKm,
+        extraQueries: [],
+        description: original.mode === "exact" ? "" : original.description.split("\n")[0],
+        maxCandidates: Math.min(original.maxCandidates, 15),
+      });
+      sendJson(res, 201, { id: startSearch(request) });
+      return;
+    }
+
+    // POST /api/searches/:id/results/:rid/contact: who to ask for permission
+    if (parts[3] === "results" && parts[5] === "contact" && method === "POST") {
+      const search = await loadSearch(id);
+      const result = search.results.find((r) => r.id === parts[4]);
+      if (!result) throw new HttpError(404, "Resultaat niet gevonden");
+      try {
+        result.contact = await lookupContact(result, contactMaps());
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
+        throw new HttpError(502, `Contact opzoeken mislukt: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      await store.save(search);
+      sendJson(res, 200, result);
+      return;
+    }
+
+    // GET/POST /api/searches/:id/shares, DELETE /api/searches/:id/shares/:token
+    if (parts[3] === "shares") {
+      const search = await loadSearch(id);
+      if (method === "GET" && !parts[4]) {
+        sendJson(res, 200, await shares.forSearch(search.id));
+        return;
+      }
+      if (method === "POST" && !parts[4]) {
+        const body = ShareCreateSchema.safeParse(await readJson(req));
+        if (!body.success) throw new HttpError(400, body.error.issues[0].message);
+        const resultIds = body.data.resultIds.filter((rid) => search.results.some((r) => r.id === rid));
+        if (!resultIds.length) throw new HttpError(400, "Kies minstens één locatie");
+        const share: Share = {
+          token: randomBytes(16).toString("base64url"),
+          searchId: search.id,
+          title: body.data.title,
+          message: body.data.message,
+          resultIds,
+          createdAt: new Date().toISOString(),
+          votes: {},
+        };
+        await shares.save(share);
+        sendJson(res, 201, share);
+        return;
+      }
+      if (method === "DELETE" && parts[4]) {
+        const share = await shares.get(parts[4]);
+        if (share?.searchId !== search.id) throw new HttpError(404, "Link niet gevonden");
+        await shares.delete(parts[4]);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
     }
 
     // PATCH /api/searches/:id/results/:rid

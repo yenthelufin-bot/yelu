@@ -22,6 +22,14 @@ export interface PlaceResult {
   types: string[];
 }
 
+export interface PlaceContact {
+  name: string;
+  address: string;
+  phone: string;
+  website: string;
+  mapsUrl: string;
+}
+
 export interface StreetViewMeta {
   panoId: string;
   location: LatLng;
@@ -85,6 +93,46 @@ export class GoogleMaps {
       pageToken = body.nextPageToken;
     } while (pageToken && pages < maxPages);
     return results;
+  }
+
+  /** Owner and contact details of one place (Place Details, Enterprise fields). */
+  async placeDetails(placeId: string): Promise<PlaceContact> {
+    const res = await this.fetchFn(`https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}?languageCode=nl`, {
+      headers: {
+        "X-Goog-Api-Key": this.apiKey,
+        "X-Goog-FieldMask": "id,displayName,formattedAddress,nationalPhoneNumber,internationalPhoneNumber,websiteUri,googleMapsUri",
+      },
+    });
+    const body = (await res.json()) as any;
+    if (!res.ok) throw new GoogleApiError("Place Details", String(res.status), body?.error?.message);
+    return {
+      name: body.displayName?.text ?? "",
+      address: body.formattedAddress ?? "",
+      phone: body.internationalPhoneNumber ?? body.nationalPhoneNumber ?? "",
+      website: body.websiteUri ?? "",
+      mapsUrl: body.googleMapsUri ?? "",
+    };
+  }
+
+  /** The places closest to a point (Nearby Search, Pro fields only: ids and names). */
+  async nearbyPlaces(location: LatLng, radiusM: number): Promise<{ id: string; name: string; location: LatLng }[]> {
+    const res = await this.fetchFn("https://places.googleapis.com/v1/places:searchNearby", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Goog-Api-Key": this.apiKey, "X-Goog-FieldMask": "places.id,places.displayName,places.location" },
+      body: JSON.stringify({
+        maxResultCount: 5,
+        rankPreference: "DISTANCE",
+        languageCode: "nl",
+        locationRestriction: { circle: { center: { latitude: location.lat, longitude: location.lng }, radius: radiusM } },
+      }),
+    });
+    const body = (await res.json()) as any;
+    if (!res.ok) throw new GoogleApiError("Nearby Search", String(res.status), body?.error?.message);
+    return (body.places ?? []).map((p: any) => ({
+      id: p.id,
+      name: p.displayName?.text ?? "",
+      location: { lat: p.location.latitude, lng: p.location.longitude },
+    }));
   }
 
   /** Street View metadata lookups are free of charge; image requests are not. */

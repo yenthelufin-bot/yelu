@@ -1,4 +1,5 @@
 // Location Scout frontend. Plain ES module, no build step.
+import { prepareJpeg, readGps } from "./photos.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const state = {
@@ -10,6 +11,23 @@ const state = {
   skipped: [],
   events: null,
   center: null,
+  mode: "brief",
+  /** Uploaded reference photos: { id, url, busy } */
+  references: [],
+  /** Shares of the open search, with their votes. */
+  shares: [],
+};
+
+const MODE_TEXT = {
+  brief: { hint: "", place: "Gemeente of stad" },
+  similar: {
+    hint: "Voeg 1 tot 4 voorbeeldfoto's toe: een moodboard, een shot dat je mooi vindt, een eerdere locatie. De app zoekt plekken die erop lijken.",
+    place: "Gemeente of stad",
+  },
+  exact: {
+    hint: "Voeg één foto toe. Zitten er GPS-gegevens in, dan zie je meteen waar ze genomen is. Anders gaat de app op zoek naar herkenningspunten en vergelijkt hij met Street View.",
+    place: "Regio (optioneel, maar het helpt veel)",
+  },
 };
 
 const OFFLINE_MESSAGE =
@@ -155,14 +173,17 @@ function renderCustomColors() {
 }
 
 function readForm() {
+  const exact = state.mode === "exact";
   return {
+    mode: state.mode,
+    referenceIds: state.mode === "brief" ? [] : state.references.filter((r) => r.id).map((r) => r.id),
     place: $("#place").value.trim(),
     radiusKm: Number($("#radius").value),
-    locationTypes: [...state.selected.locationTypes],
-    description: $("#description").value.trim(),
-    colorPresets: [...state.selected.colorPresets],
-    customColors: state.customColors,
-    extraFilters: [...state.selected.extraFilters],
+    locationTypes: exact ? [] : [...state.selected.locationTypes],
+    description: exact ? "" : $("#description").value.trim(),
+    colorPresets: exact ? [] : [...state.selected.colorPresets],
+    customColors: exact ? [] : state.customColors,
+    extraFilters: exact ? [] : [...state.selected.extraFilters],
     shootType: $("#shoot-type").value,
     minPanoYear: $("#min-year").value ? Number($("#min-year").value) : null,
     maxCandidates: Number($("#max-candidates").value),
@@ -172,7 +193,7 @@ function readForm() {
 }
 
 const refreshEstimate = debounce(async () => {
-  const req = readForm();
+  const req = { ...readForm(), mode: "brief", referenceIds: [] };
   if (!req.place) req.place = "xx";
   if (!req.locationTypes.length) req.locationTypes = ["stedelijk"];
   const el = $("#estimate");
@@ -209,9 +230,12 @@ function showFormError(message) {
 async function startSearch(event) {
   event.preventDefault();
   const req = readForm();
-  if (!req.place) return showFormError("Geef een gemeente of stad op.");
-  if (!req.locationTypes.length && !req.description) return showFormError("Kies minstens één type locatie.");
-  if (!req.locationTypes.length) req.locationTypes = ["stedelijk"];
+  if (req.mode !== "exact" && !req.place) return showFormError("Geef een gemeente of stad op.");
+  if (req.mode === "brief" && !req.locationTypes.length && !req.description) return showFormError("Kies minstens één type locatie.");
+  if (req.mode !== "brief") {
+    if (state.references.some((r) => r.busy)) return showFormError("Even geduld: de foto's worden nog opgeladen.");
+    if (!req.referenceIds.length) return showFormError("Voeg eerst een foto toe.");
+  }
   showFormError("");
   $("#start").disabled = true;
   try {
@@ -221,6 +245,112 @@ async function startSearch(event) {
     showFormError(err.message);
   } finally {
     $("#start").disabled = false;
+  }
+}
+
+// ---------- search modes and reference photos ----------
+
+function setMode(mode) {
+  state.mode = mode;
+  document.querySelectorAll(".mode-tabs button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
+  $("#photo-box").hidden = mode === "brief";
+  $("#photo-hint").textContent = MODE_TEXT[mode].hint;
+  $("#place-label").textContent = MODE_TEXT[mode].place;
+  document.querySelectorAll(".brief-only").forEach((el) => (el.hidden = mode === "exact"));
+  document.querySelectorAll(".optional-note").forEach((el) => (el.hidden = mode !== "similar"));
+  $("#photo-input").multiple = mode === "similar";
+  if (mode === "exact" && state.references.length > 1) state.references = state.references.slice(0, 1);
+  if (mode !== "exact") $("#gps-result").hidden = true;
+  renderReferences();
+}
+
+function renderReferences() {
+  const box = $("#photo-thumbs");
+  box.replaceChildren(
+    ...state.references.map((ref, i) => {
+      const div = document.createElement("div");
+      div.className = `thumb${ref.busy ? " busy" : ""}`;
+      const img = document.createElement("img");
+      img.src = ref.url;
+      img.alt = `Voorbeeldfoto ${i + 1}`;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.setAttribute("aria-label", "Foto verwijderen");
+      remove.addEventListener("click", () => {
+        state.references.splice(i, 1);
+        if (!state.references.length) $("#gps-result").hidden = true;
+        renderReferences();
+      });
+      div.append(img, remove);
+      return div;
+    }),
+  );
+  const max = state.mode === "exact" ? 1 : 4;
+  $("#dropzone").hidden = state.references.length >= max;
+}
+
+function showGps(gps) {
+  const out = $("#gps-result");
+  out.hidden = false;
+  if (!gps) {
+    out.className = "result";
+    out.replaceChildren("Geen GPS-gegevens in deze foto (vaak weggehaald door chat-apps en sociale media). Klik op Zoek locaties: de app gaat dan op zoek naar herkenningspunten.");
+    return;
+  }
+  out.className = "result good";
+  const coords = `${gps.lat.toFixed(6)}, ${gps.lng.toFixed(6)}`;
+  out.replaceChildren(`📍 Gevonden in de foto zelf: ${coords}`);
+  const row = document.createElement("div");
+  row.className = "actions";
+  const link = (text, href) => {
+    const a = document.createElement("a");
+    a.className = "ghost small";
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.href = href;
+    a.textContent = text;
+    return a;
+  };
+  row.append(
+    link("Google Maps ↗", `https://www.google.com/maps/search/?api=1&query=${gps.lat},${gps.lng}`),
+    link("Street View ↗", `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${gps.lat},${gps.lng}`),
+    link("Route ↗", `https://www.google.com/maps/dir/?api=1&destination=${gps.lat},${gps.lng}`),
+  );
+  const similar = document.createElement("button");
+  similar.type = "button";
+  similar.className = "ghost small";
+  similar.textContent = "Zoek gelijkaardige plekken in de buurt";
+  similar.addEventListener("click", () => {
+    $("#place").value = coords;
+    $("#radius").value = "5";
+    $("#radius-label").textContent = "5 km";
+    setMode("similar");
+    geocodePreview();
+  });
+  row.append(similar);
+  out.append(row);
+}
+
+async function addPhotos(files) {
+  const max = state.mode === "exact" ? 1 : 4;
+  const images = [...files].filter((f) => f.type.startsWith("image/")).slice(0, max - state.references.length);
+  if (!images.length) return;
+  showFormError("");
+  for (const file of images) {
+    if (state.mode === "exact") showGps(readGps(await file.arrayBuffer()));
+    const ref = { id: null, url: URL.createObjectURL(file), busy: true };
+    state.references.push(ref);
+    renderReferences();
+    try {
+      const image = await prepareJpeg(file);
+      ref.id = (await api("/api/references", { method: "POST", body: JSON.stringify({ image }) })).id;
+    } catch (err) {
+      state.references.splice(state.references.indexOf(ref), 1);
+      showFormError(err.message);
+    }
+    ref.busy = false;
+    renderReferences();
   }
 }
 
@@ -275,6 +405,7 @@ function handleEvent(ev) {
     case "snapshot":
       state.search = ev.search;
       state.running = ev.running;
+      loadShares().then(() => renderResults());
       $("#filter-score").value = String(ev.search.request.minScore ?? 60);
       $("#filter-score-label").textContent = $("#filter-score").value;
       renderRun();
@@ -323,7 +454,9 @@ function renderRun() {
   const s = state.search;
   if (!s) return;
   const r = s.request;
-  $("#run-title").textContent = `${r.place} · ${r.radiusKm} km`;
+  const label = r.mode === "exact" && !r.place ? "Waar is deze foto?" : r.place || s.resolvedPlace;
+  $("#run-title").textContent = `${label} · ${r.radiusKm} km${r.mode === "similar" ? " · op voorbeeldfoto" : r.mode === "exact" ? " · exacte plek" : ""}`;
+  renderAnalysis(s);
   $("#cancel").hidden = !state.running;
   const external = s.status === "running" && !state.running;
   if (external) {
@@ -343,6 +476,8 @@ function renderRun() {
     if ($("#filter-favorites").checked) params.set("favorites", "1");
     $(`#export-${fmt}`).href = `/api/searches/${s.id}/export.${fmt}?${params}`;
   }
+  const printParams = new URLSearchParams({ search: s.id, minScore: $("#filter-score").value, scope: $("#filter-favorites").checked ? "favorites" : "visible" });
+  $("#open-print").href = `print.html?${printParams}`;
   if (resultsZone) resultsZone.remove();
   if (s.center.lat || s.center.lng) {
     resultsZone = L.circle([s.center.lat, s.center.lng], { radius: r.radiusKm * 1000, color: "#d1631c", weight: 1, fill: false, dashArray: "4 4" }).addTo(resultsMap);
@@ -499,6 +634,7 @@ function renderCard(r, flash) {
     ul.hidden = !items.length;
   }
   $(".light", card).textContent = `☀ ${r.lightAdvice}`;
+  renderCardExtras(card, r);
   const tags = $(".tags", card);
   for (const t of r.tags) {
     const span = document.createElement("span");
@@ -517,12 +653,295 @@ function renderCard(r, flash) {
   fav.addEventListener("click", () => patchResult(r, { rating: r.rating === "favorite" ? null : "favorite" }, true));
   reject.addEventListener("click", () => patchResult(r, { rating: r.rating === "rejected" ? null : "rejected" }, true));
 
+  $(".more", card).addEventListener("click", () => moreLikeThis(r));
+  $(".find-contact", card).addEventListener("click", (e) => findContact(r, e.currentTarget));
+  if (r.contact !== undefined) $(".find-contact", card).textContent = "Contact opnieuw zoeken";
   const embedBtn = $(".embed", card);
   if (state.config.embedKey) embedBtn.addEventListener("click", () => showEmbed(card, r, current.h));
   else embedBtn.remove();
   $(".sv", card).href = `https://www.google.com/maps/@?api=1&map_action=pano&pano=${encodeURIComponent(r.panoId)}&heading=${Math.round(r.bestHeading)}`;
   $(".route", card).href = `https://www.google.com/maps/dir/?api=1&destination=${r.panoLocation.lat},${r.panoLocation.lng}`;
   return card;
+}
+
+function renderAnalysis(s) {
+  const box = $("#analysis");
+  const a = s.analysis;
+  box.hidden = !a || (!a.description && !a.locationGuesses?.length);
+  if (box.hidden) return;
+  const title = document.createElement("strong");
+  title.textContent = s.request.mode === "exact" ? "Wat de foto prijsgeeft" : "Wat de voorbeeldfoto's tonen";
+  const p = document.createElement("p");
+  p.style.margin = "0.25rem 0 0";
+  p.textContent = a.description;
+  box.replaceChildren(title, p);
+  if (a.locationGuesses?.length) {
+    const ul = document.createElement("ul");
+    for (const g of a.locationGuesses) {
+      const li = document.createElement("li");
+      li.textContent = `${g.query} (${g.confidence}%): ${g.why}`;
+      ul.append(li);
+    }
+    box.append(ul);
+  }
+}
+
+const ACCESS_LABEL = { publiek: "Publiek", privé: "Privé terrein", onduidelijk: "Toegang onduidelijk" };
+
+/** Access, resemblance, contact and votes on a result card. */
+function renderCardExtras(card, r) {
+  const badges = $(".badges", card);
+  const badge = (cls, text, title = "") => {
+    const span = document.createElement("span");
+    span.className = `badge ${cls}`;
+    span.textContent = text;
+    span.title = title;
+    badges.append(span);
+  };
+  if (r.access) badge(r.access, ACCESS_LABEL[r.access] ?? r.access, r.accessNotes);
+  if (r.similarity !== null && r.similarity !== undefined) {
+    badge("similar", state.search.request.mode === "exact" ? `${r.similarity}% zeker dezelfde plek` : `lijkt ${r.similarity}% op je voorbeeld`);
+  }
+  const votes = votesFor(r.id);
+  const up = votes.filter((v) => v.vote === "up").length;
+  const down = votes.length - up;
+  if (up) badge("votes-up", `👍 ${up}`);
+  if (down) badge("votes-down", `👎 ${down}`);
+  $(".access-notes", card).textContent = r.accessNotes ?? "";
+
+  const contact = $(".contact", card);
+  contact.hidden = r.contact === undefined;
+  if (r.contact === null) contact.textContent = "Geen eigenaar of contactgegevens gevonden. Vraag ter plaatse of bij de gemeente.";
+  else if (r.contact) {
+    const c = r.contact;
+    const name = document.createElement("strong");
+    name.textContent = c.name || "Contact";
+    contact.replaceChildren(name);
+    if (c.address) contact.append(c.address, document.createElement("br"));
+    const link = (href, text) => {
+      const a = document.createElement("a");
+      a.href = href;
+      a.textContent = text;
+      if (!href.startsWith("tel:")) {
+        a.target = "_blank";
+        a.rel = "noopener";
+      }
+      return a;
+    };
+    if (c.phone) contact.append(link(`tel:${c.phone.replace(/\s+/g, "")}`, c.phone), " ");
+    if (c.website) contact.append(link(c.website, c.website.startsWith("mailto:") ? c.website.slice(7) : "website ↗"), " ");
+    if (c.mapsUrl) contact.append(link(c.mapsUrl, "op Google Maps ↗"));
+    const note = document.createElement("div");
+    note.className = "warn";
+    note.textContent =
+      c.match === "nearby"
+        ? "Dichtstbijzijnde zaak, niet zeker de eigenaar: controleer even."
+        : c.source === "osm"
+          ? "Uit OpenStreetMap."
+          : "Van Google Maps.";
+    contact.append(note);
+  }
+
+  const voteBox = $(".votes", card);
+  voteBox.hidden = !votes.length;
+  if (votes.length) {
+    const ul = document.createElement("ul");
+    for (const v of votes) {
+      const li = document.createElement("li");
+      li.textContent = `${v.vote === "up" ? "👍" : "👎"} ${v.name}${v.comment ? `: ${v.comment}` : ""}`;
+      ul.append(li);
+    }
+    voteBox.replaceChildren("Reacties via je gedeelde link:", ul);
+  }
+}
+
+async function moreLikeThis(r) {
+  const answer = window.prompt(`Gelijkaardige plekken zoeken rond "${r.name}". Binnen hoeveel km?`, "3");
+  if (answer === null) return;
+  const radiusKm = Math.min(50, Math.max(0.5, Number(answer.replace(",", ".")) || 3));
+  try {
+    const { id } = await api(`/api/searches/${state.search.id}/results/${r.id}/more`, { method: "POST", body: JSON.stringify({ radiusKm }) });
+    openSearch(id);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function findContact(r, button) {
+  button.disabled = true;
+  button.textContent = "Zoeken…";
+  try {
+    const updated = await api(`/api/searches/${state.search.id}/results/${r.id}/contact`, { method: "POST" });
+    Object.assign(r, updated);
+    renderResults();
+  } catch (err) {
+    alert(err.message);
+    button.disabled = false;
+    button.textContent = "Zoek contact";
+  }
+}
+
+// ---------- sharing ----------
+
+function votesFor(resultId) {
+  return state.shares.flatMap((share) => share.votes?.[resultId] ?? []);
+}
+
+async function loadShares() {
+  const s = state.search;
+  if (!s) return;
+  try {
+    state.shares = await api(`/api/searches/${s.id}/shares`);
+  } catch {
+    state.shares = [];
+  }
+}
+
+let tunnelUrl = null;
+
+function shareLinkBox(share, isNew = false) {
+  const box = document.createElement("div");
+  box.className = `share-link${isNew ? " new" : ""}`;
+  const title = document.createElement("strong");
+  const voteCount = Object.values(share.votes ?? {}).reduce((n, list) => n + list.length, 0);
+  title.textContent = `${share.title} · ${share.resultIds.length} locaties · ${voteCount} reacties`;
+  const local = `${location.origin}/s/${share.token}`;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.readOnly = true;
+  input.value = tunnelUrl ? `${tunnelUrl}/s/${share.token}` : local;
+  const row = document.createElement("div");
+  row.className = "row";
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "ghost small";
+  copy.textContent = "Kopieer link";
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(input.value);
+      copy.textContent = "Gekopieerd ✓";
+    } catch {
+      input.select();
+    }
+  });
+  const open = document.createElement("a");
+  open.className = "ghost small";
+  open.href = local;
+  open.target = "_blank";
+  open.rel = "noopener";
+  open.textContent = "Bekijk ↗";
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "ghost small";
+  del.textContent = "Link verwijderen";
+  del.addEventListener("click", async () => {
+    if (!confirm("Deze link verwijderen? Wie hem heeft, kan hem dan niet meer openen.")) return;
+    await api(`/api/searches/${state.search.id}/shares/${share.token}`, { method: "DELETE" });
+    await loadShares();
+    renderShareList();
+    renderResults();
+  });
+  row.append(copy, open, del);
+  box.append(title, input, row);
+  if (!tunnelUrl) {
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = "Deze link werkt alleen op deze computer. Voor iemand anders: zet eerst de internetlink aan.";
+    box.append(hint);
+  }
+  return box;
+}
+
+let newShareToken = null;
+
+function renderShareList() {
+  const list = $("#share-list");
+  list.replaceChildren();
+  const tunnelBox = document.createElement("div");
+  tunnelBox.className = "share-link";
+  const status = document.createElement("span");
+  status.textContent = tunnelUrl
+    ? `Internetlink staat aan: ${tunnelUrl}. Hij werkt zolang Location Scout op deze computer draait.`
+    : "Om iemand anders je selectie te laten zien, zet je een internetlink aan (gratis, via Cloudflare). Die werkt zolang Location Scout op je computer draait.";
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = tunnelUrl ? "ghost small" : "primary";
+  toggle.textContent = tunnelUrl ? "Internetlink uitzetten" : "Internetlink aanzetten";
+  toggle.addEventListener("click", () => toggleTunnel(toggle));
+  tunnelBox.append(status, toggle);
+  list.append(tunnelBox);
+  for (const share of state.shares) list.append(shareLinkBox(share, share.token === newShareToken));
+}
+
+async function toggleTunnel(button) {
+  button.disabled = true;
+  const err = $("#share-error");
+  err.hidden = true;
+  try {
+    if (tunnelUrl) {
+      await api("/api/tunnel", { method: "DELETE" });
+      tunnelUrl = null;
+    } else {
+      const { installed } = await api("/api/tunnel");
+      if (!installed && !confirm("Hiervoor downloadt Location Scout eenmalig het gratis programma cloudflared van Cloudflare (± 40 MB). Doorgaan?")) {
+        button.disabled = false;
+        return;
+      }
+      button.textContent = installed ? "Internetlink maken…" : "cloudflared downloaden en starten…";
+      tunnelUrl = (await api("/api/tunnel", { method: "POST", body: JSON.stringify({ install: true }) })).url;
+    }
+  } catch (e) {
+    err.textContent = e.message;
+    err.hidden = false;
+  }
+  renderShareList();
+}
+
+async function openShareDialog() {
+  const s = state.search;
+  if (!s) return;
+  const favorites = s.results.filter((r) => r.rating === "favorite");
+  $("#share-fav-count").textContent = String(favorites.length);
+  $("#share-visible-count").textContent = String(visibleResults().length);
+  const scope = document.querySelector(`input[name="share-scope"][value="${favorites.length ? "favorites" : "visible"}"]`);
+  scope.checked = true;
+  if (!$("#share-title").value) $("#share-title").value = `Locaties ${s.request.place || s.resolvedPlace}`;
+  $("#share-error").hidden = true;
+  newShareToken = null;
+  try {
+    tunnelUrl = (await api("/api/tunnel")).url;
+  } catch {
+    tunnelUrl = null;
+  }
+  await loadShares();
+  renderShareList();
+  $("#share-dialog").showModal();
+}
+
+async function createShare() {
+  const s = state.search;
+  const scope = document.querySelector('input[name="share-scope"]:checked').value;
+  const results = scope === "favorites" ? s.results.filter((r) => r.rating === "favorite") : visibleResults();
+  const err = $("#share-error");
+  err.hidden = true;
+  if (!results.length) {
+    err.textContent = scope === "favorites" ? "Je hebt nog geen favorieten. Markeer er eerst een paar met ★." : "Er worden geen locaties getoond.";
+    err.hidden = false;
+    return;
+  }
+  try {
+    const share = await api(`/api/searches/${s.id}/shares`, {
+      method: "POST",
+      body: JSON.stringify({ title: $("#share-title").value, message: $("#share-message").value, resultIds: results.map((r) => r.id) }),
+    });
+    newShareToken = share.token;
+    await loadShares();
+    renderShareList();
+    $("#share-list .share-link.new")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e) {
+    err.textContent = e.message;
+    err.hidden = false;
+  }
 }
 
 async function patchResult(r, patch, rerender) {
@@ -595,7 +1014,9 @@ async function renderHistory() {
 }
 
 function applyRequest(r) {
-  $("#place").value = r.place;
+  state.references = (r.referenceIds ?? []).map((id) => ({ id, url: `/api/references/${id}`, busy: false }));
+  setMode(r.mode ?? "brief");
+  $("#place").value = r.center && r.place.startsWith("rond ") ? `${r.center.lat.toFixed(6)}, ${r.center.lng.toFixed(6)}` : r.place;
   $("#radius").value = String(Math.round(r.radiusKm));
   $("#radius-label").textContent = `${$("#radius").value} km`;
   $("#description").value = r.description;
@@ -768,6 +1189,31 @@ async function init() {
   state.config = await api("/api/config");
   showSetupWarning(state.config);
   $("#google-form").addEventListener("submit", saveGoogleKey);
+  $("#open-share").addEventListener("click", openShareDialog);
+  $("#share-create").addEventListener("click", createShare);
+  // Votes come in through the share page; pick them up now and then.
+  setInterval(async () => {
+    if (!state.search || $("#view-search").hidden || $("#share-dialog").open) return;
+    const before = JSON.stringify(state.shares);
+    await loadShares();
+    if (JSON.stringify(state.shares) !== before) renderResults();
+  }, 30_000);
+  document.querySelectorAll(".mode-tabs button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
+  $("#photo-input").addEventListener("change", (e) => {
+    addPhotos(e.target.files);
+    e.target.value = "";
+  });
+  const drop = $("#dropzone");
+  drop.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    drop.classList.add("over");
+  });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    addPhotos(e.dataTransfer.files);
+  });
   $("#gemini-form").addEventListener("submit", saveGemini);
   renderForm();
   renderCustomColors();

@@ -8,19 +8,23 @@ import type { GoogleMaps } from "./google.ts";
 // midnight Pacific time; the counters here follow the same calendar.
 // Street View metadata and the Maps Embed API are free without a cap.
 
-export type Sku = "geocode" | "placesTextSearch" | "streetViewImage";
+export type Sku = "geocode" | "placesTextSearch" | "streetViewImage" | "placeDetails" | "nearbySearch";
 
 /** Google's free monthly amounts, minus a margin for calls made outside this tool. */
 export const FREE_LIMITS: Record<Sku, number> = {
   geocode: 9_500, // Geocoding (Essentials): 10,000 free
   placesTextSearch: 4_750, // Text Search Pro: 5,000 free
   streetViewImage: 9_500, // Static Street View (Essentials): 10,000 free
+  placeDetails: 950, // Place Details with phone and website (Enterprise): 1,000 free
+  nearbySearch: 4_750, // Nearby Search (Pro): 5,000 free
 };
 
 export const SKU_LABELS: Record<Sku, string> = {
   geocode: "Plaatsen opzoeken",
   placesTextSearch: "Google Places-zoekopdrachten",
   streetViewImage: "Street View-beelden",
+  placeDetails: "Contactgegevens opzoeken",
+  nearbySearch: "Eigenaar in de buurt zoeken",
 };
 
 export class FreeLimitError extends Error {
@@ -66,7 +70,7 @@ export class UsageMeter {
 
   private read(): UsageFile {
     const month = currentMonth(this.now());
-    const empty: UsageFile = { month, counts: { geocode: 0, placesTextSearch: 0, streetViewImage: 0 } };
+    const empty: UsageFile = { month, counts: { geocode: 0, placesTextSearch: 0, streetViewImage: 0, placeDetails: 0, nearbySearch: 0 } };
     try {
       const data = JSON.parse(readFileSync(this.file, "utf8")) as UsageFile;
       return data.month === month ? { month, counts: { ...empty.counts, ...data.counts } } : empty;
@@ -100,6 +104,21 @@ export class UsageMeter {
 }
 
 type Maps = Pick<GoogleMaps, "geocode" | "searchText" | "streetViewMeta" | "streetViewImage">;
+type ContactMaps = Pick<GoogleMaps, "placeDetails" | "nearbyPlaces">;
+
+/** Same as meteredMaps, for the contact lookups. */
+export function meteredContactMaps(maps: ContactMaps, meter: UsageMeter): ContactMaps {
+  return {
+    placeDetails: (placeId: string) => {
+      meter.take("placeDetails");
+      return maps.placeDetails(placeId);
+    },
+    nearbyPlaces: (location: LatLng, radiusM: number) => {
+      meter.take("nearbySearch");
+      return maps.nearbyPlaces(location, radiusM);
+    },
+  };
+}
 
 /** Wraps the Google client so every paid call is counted first. */
 export function meteredMaps(maps: Maps, meter: UsageMeter): Maps {

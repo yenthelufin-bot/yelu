@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Locatieselectie</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='13' r='9' fill='%23e07a2f'/%3E%3Cpath d='M16 31 9 18h14z' fill='%23e07a2f'/%3E%3Ccircle cx='16' cy='13' r='4' fill='white'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    .share-page { max-width: 1100px; margin: 0 auto; padding: 1.25rem; display: grid; gap: 1rem; }
+    .share-head h1 { margin: 0 0 0.3rem; font-size: 1.5rem; }
+    .share-head p { margin: 0; color: var(--muted); white-space: pre-line; }
+    .who { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; }
+    .who .field { margin: 0; flex: 1 1 220px; }
+    .share-map { height: 280px; border-radius: 10px; border: 1px solid var(--line); }
+    .vote-row { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+    .vote-row button[aria-pressed="true"].up { background: var(--good); color: #fff; border-color: var(--good); }
+    .vote-row button[aria-pressed="true"].down { background: var(--bad); color: #fff; border-color: var(--bad); }
+    .tally { font-size: 0.85rem; color: var(--muted); }
+    .saved { font-size: 0.82rem; color: var(--good); }
+  </style>
+</head>
+<body>
+  <main class="share-page">
+    <header class="panel share-head">
+      <h1 id="title">Locatieselectie</h1>
+      <p id="message"></p>
+    </header>
+    <section class="panel who">
+      <label class="field">
+        <span>Je naam (zodat de fotograaf weet wie wat koos)</span>
+        <input type="text" id="voter" maxlength="60" autocomplete="name">
+      </label>
+      <p class="hint" style="margin:0">Geef per locatie 👍 of 👎, en eventueel een opmerking.</p>
+    </section>
+    <div id="map" class="share-map" aria-label="Kaart van de locaties"></div>
+    <p id="error" class="error" hidden></p>
+    <div id="cards" class="cards"></div>
+  </main>
+
+  <template id="share-card">
+    <article class="card">
+      <div class="shots"><img alt="" loading="lazy"></div>
+      <div class="card-body">
+        <h3 class="name"></h3>
+        <div class="badges"></div>
+        <div class="palette"></div>
+        <p class="summary"></p>
+        <ul class="pros"></ul>
+        <ul class="cons"></ul>
+        <p class="light"></p>
+        <textarea class="comment" rows="2" maxlength="500" placeholder="Opmerking (optioneel)"></textarea>
+        <div class="vote-row">
+          <button type="button" class="up ghost small" aria-pressed="false">👍 Ja</button>
+          <button type="button" class="down ghost small" aria-pressed="false">👎 Nee</button>
+          <a class="map-link ghost small" target="_blank" rel="noopener">Bekijk op kaart ↗</a>
+          <span class="saved" hidden>Bewaard ✓</span>
+        </div>
+        <p class="tally"></p>
+      </div>
+    </article>
+  </template>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script type="module" src="/share.js"></script>
+</body>
+</html>

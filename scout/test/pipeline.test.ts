@@ -120,3 +120,92 @@ test("helpers", () => {
     placesRequests: 6,
   });
 });
+
+test("reference photos steer the search and reach the judge", async () => {
+  const { deps } = fakeDeps();
+  const seenRefs: number[] = [];
+  const assess = deps.judge.assess;
+  deps.judge.assess = async (brief, views, context, refs) => {
+    seenRefs.push(refs?.length ?? 0);
+    assert.match(brief, /REFERENCE PHOTOS/);
+    return assess(brief, views, context, refs);
+  };
+  deps.judge.analyzeReferences = async (refs, mode) => {
+    assert.equal(refs.length, 2);
+    assert.equal(mode, "similar");
+    return { description: "Graansilo aan een kanaal.", locationTypes: ["industrieel", "water", "onbestaand"], colors: ["#8c5a3c", "fout"], placesQueries: ["graansilo"], locationGuesses: [] };
+  };
+  const queries: string[] = [];
+  const searchText = deps.maps.searchText;
+  deps.maps.searchText = async (q, c, r) => {
+    queries.push(q);
+    return searchText(q, c, r);
+  };
+  deps.loadReference = async (id) => Buffer.from(`ref-${id}`);
+  const ids = ["11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"];
+  const { search } = await run(deps, request({ mode: "similar", referenceIds: ids, locationTypes: [], maxCandidates: 5 }));
+  assert.equal(search.status, "done", search.error ?? "");
+  assert.ok(seenRefs.length > 0 && seenRefs.every((n) => n === 2));
+  assert.equal(search.analysis?.description, "Graansilo aan een kanaal.");
+  assert.equal(queries[0], "graansilo", "the photo's own searches go first");
+  assert.ok(queries.includes("industrieterrein"), "types picked from the photo are searched too");
+});
+
+test("exact mode without a region searches around the best guess", async () => {
+  const { deps } = fakeDeps();
+  const geocoded: string[] = [];
+  const geocode = deps.maps.geocode;
+  deps.maps.geocode = async (q) => {
+    geocoded.push(q);
+    return geocode(q);
+  };
+  deps.loadReference = async () => Buffer.from("ref");
+  deps.judge.analyzeReferences = async () => ({
+    description: "Stenen brug met een kapel.",
+    locationTypes: [],
+    colors: [],
+    placesQueries: [],
+    locationGuesses: [
+      { query: "Sint-Michielsbrug Gent", confidence: 80, why: "torens op de achtergrond" },
+      { query: "Grasbrug Gent", confidence: 30, why: "kade" },
+    ],
+  });
+  const { search } = await run(
+    deps,
+    request({ mode: "exact", place: "", referenceIds: ["11111111-1111-4111-8111-111111111111"], locationTypes: [], maxCandidates: 5 }),
+  );
+  assert.equal(search.status, "done", search.error ?? "");
+  assert.deepEqual(geocoded, ["Sint-Michielsbrug Gent"]);
+
+  deps.judge.analyzeReferences = async () => ({ description: "", locationTypes: [], colors: [], placesQueries: [], locationGuesses: [] });
+  const nothing = await run(deps, request({ mode: "exact", place: "", referenceIds: ["11111111-1111-4111-8111-111111111111"], locationTypes: [] }));
+  assert.equal(nothing.search.status, "error");
+  assert.match(nothing.search.error ?? "", /regio/);
+});
+
+test("OpenStreetMap's access tag overrides the guess; Places ids are kept", async () => {
+  const { deps } = fakeDeps({ places: 2, osm: 3 });
+  const overpass = deps.overpass;
+  deps.overpass = async (...args) => (await overpass(...args)).map((f) => ({ ...f, tags: { access: "private", operator: "Silo NV", phone: "+32 9 000 00 00", building: "silo" } }));
+  const { search } = await run(deps, request({ maxCandidates: 10 }));
+  const osm = search.results.filter((r) => r.source === "osm");
+  assert.ok(osm.length > 0);
+  assert.ok(osm.every((r) => r.access === "privé" && /OpenStreetMap/.test(r.accessNotes) && r.osm?.operator === "Silo NV"));
+  assert.ok(osm.every((r) => r.osm?.building === undefined), "only access and contact tags are kept");
+  assert.ok(search.results.filter((r) => r.source === "places").every((r) => r.placeId));
+  assert.ok(search.results.filter((r) => r.source === "grid").every((r) => r.access === "publiek"));
+});
+
+test("searches around a fixed centre skip geocoding", async () => {
+  const { deps, calls } = fakeDeps();
+  let geocoded = false;
+  deps.maps.geocode = async () => {
+    geocoded = true;
+    throw new Error("should not geocode");
+  };
+  const { search } = await run(deps, request({ place: "rond Silo 1", center: { lat: 51.06, lng: 3.72 }, maxCandidates: 5 }));
+  assert.equal(search.status, "done", search.error ?? "");
+  assert.equal(geocoded, false);
+  assert.deepEqual(search.center, { lat: 51.06, lng: 3.72 });
+  assert.ok(calls.assess > 0);
+});

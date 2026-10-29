@@ -4,8 +4,16 @@ import type { GeocodeResult, GoogleMaps } from "./google.ts";
 import { lightAdvice } from "./light.ts";
 import type { OsmFeature } from "./overpass.ts";
 import { LOCATION_TYPES } from "./presets.ts";
-import type { Candidate, CandidateSource, PanoCandidate, SavedSearch, ScoredLocation, SearchCost, SearchRequest } from "./types.ts";
-import { type Assessment, type AssessmentResult, buildBrief, PRICE_INPUT_PER_MTOK, PRICE_OUTPUT_PER_MTOK, type ViewImage } from "./vision.ts";
+import type { Candidate, CandidateSource, PanoCandidate, SavedSearch, ScoredLocation, SearchCost, SearchMode, SearchRequest } from "./types.ts";
+import {
+  type Assessment,
+  type AssessmentResult,
+  buildBrief,
+  PRICE_INPUT_PER_MTOK,
+  PRICE_OUTPUT_PER_MTOK,
+  type ReferenceAnalysis,
+  type ViewImage,
+} from "./vision.ts";
 
 const QUERIES_PER_TYPE = 3;
 const OSM_LIMIT = 400;
@@ -21,7 +29,17 @@ export type SearchEvent =
   | { type: "done"; search: SavedSearch };
 
 export interface Judge {
-  assess(brief: string, views: ViewImage[], context: string): Promise<AssessmentResult>;
+  assess(brief: string, views: ViewImage[], context: string, references?: Buffer[]): Promise<AssessmentResult>;
+  /** Reads the reference photos before the search, to steer it. Optional: not every judge can. */
+  analyzeReferences?(references: Buffer[], mode: SearchMode, hint: string): Promise<ReferenceAnalysis>;
+}
+
+/** OSM tags worth keeping on a candidate: who runs it, how to reach them, and whether it is open. */
+const OSM_KEEP = /^(access|operator|owner|website|phone|email|contact:.+|opening_hours|name|addr:.+)$/;
+
+export function osmContactTags(tags: Record<string, string>): Record<string, string> | undefined {
+  const kept = Object.fromEntries(Object.entries(tags).filter(([k]) => OSM_KEEP.test(k)));
+  return Object.keys(kept).length ? kept : undefined;
 }
 
 export interface SpotDeps {
@@ -31,6 +49,8 @@ export interface SpotDeps {
 
 export interface PipelineDeps extends SpotDeps {
   judge: Judge;
+  /** Reads an uploaded reference photo (JPEG). */
+  loadReference?: (id: string) => Promise<Buffer>;
   /** Called with the analysed images of a result, so the server can show them. */
   onImages?: (searchId: string, resultId: string, images: ViewImage[]) => void;
   /** Called whenever the search changed enough to be worth saving. */
@@ -123,8 +143,14 @@ export async function findSpots(
   onGeocoded?: (geo: GeocodeResult) => void,
 ): Promise<SpotsFound> {
   const radiusM = req.radiusKm * 1000;
-  emit({ type: "status", message: `Zoeken naar "${req.place}"…` });
-  const geo = await deps.maps.geocode(req.place);
+  let geo: GeocodeResult;
+  if (req.center) {
+    // "More like this" searches around a known spot; no need to look anything up.
+    geo = { location: req.center, formattedAddress: req.place || `${req.center.lat.toFixed(5)}, ${req.center.lng.toFixed(5)}` };
+  } else {
+    emit({ type: "status", message: `Zoeken naar "${req.place}"…` });
+    geo = await deps.maps.geocode(req.place);
+  }
   onGeocoded?.(geo);
 
   const types = req.locationTypes.map((id) => LOCATION_TYPES.find((t) => t.id === id)).filter((t) => t !== undefined);
@@ -136,13 +162,15 @@ export async function findSpots(
   if (req.sources.places) {
     emit({ type: "status", message: "Google Places doorzoeken…" });
     const queries = types.flatMap((t) => t.placesQueries.slice(0, QUERIES_PER_TYPE));
-    if (req.description) queries.unshift(req.description);
-    for (const query of queries) {
+    if (req.description && req.mode !== "exact") queries.unshift(req.description);
+    // From the reference photos; in exact mode these are the guesses of where it was taken.
+    queries.unshift(...req.extraQueries);
+    for (const query of [...new Set(queries)]) {
       if (signal.aborted) break;
       try {
         const places = await deps.maps.searchText(query, geo.location, radiusM);
         cost.placesRequests++;
-        for (const p of places) fromPlaces.push({ location: p.location, source: "places", name: p.name, detail: p.address });
+        for (const p of places) fromPlaces.push({ location: p.location, source: "places", name: p.name, detail: p.address, placeId: p.id });
       } catch (err) {
         // The other sources still work, also when Places hit its free limit.
         warn("Google Places", err);
@@ -159,7 +187,13 @@ export async function findSpots(
       // Big areas such as an industrial zone come back as dozens of buildings;
       // keep one spot per 300 m so they don't eat the whole budget.
       fromOsm = dedupeByDistance(
-        shuffle(features).map((f) => ({ location: f.location, source: "osm" as const, name: f.name, detail: "OpenStreetMap" })),
+        shuffle(features).map((f) => ({
+          location: f.location,
+          source: "osm" as const,
+          name: f.name,
+          detail: "OpenStreetMap",
+          osm: osmContactTags(f.tags),
+        })),
         300,
       );
     } catch (err) {
@@ -252,7 +286,37 @@ export function toResult(spot: PanoCandidate, a: Assessment, headings: number[],
     lightAdvice: lightAdvice(bestHeading),
     rating: null,
     note: "",
+    ...accessFor(spot, a),
+    similarity: a.similarity,
   };
+}
+
+/** OpenStreetMap's access tag, where mapped, beats a guess from the images. */
+function accessFor(spot: PanoCandidate, a: Assessment): Pick<ScoredLocation, "access" | "accessNotes"> {
+  const tag = spot.osm?.access;
+  if (tag === "private" || tag === "no") return { access: "privé", accessNotes: `Volgens OpenStreetMap privé (access=${tag}). ${a.accessNotes}`.trim() };
+  if (tag === "yes" || tag === "permissive") return { access: "publiek", accessNotes: `Volgens OpenStreetMap toegankelijk (access=${tag}). ${a.accessNotes}`.trim() };
+  return { access: a.access, accessNotes: a.accessNotes };
+}
+
+/**
+ * Uses the reference photos to fill in what the photographer didn't say:
+ * types, colours, extra searches and, for exact mode, where to look.
+ */
+export function applyReferenceAnalysis(req: SearchRequest, analysis: ReferenceAnalysis): SearchRequest {
+  const known = new Set(LOCATION_TYPES.map((t) => t.id));
+  const next = { ...req };
+  if (!next.locationTypes.length && req.mode === "similar") next.locationTypes = analysis.locationTypes.filter((t) => known.has(t)).slice(0, 3);
+  if (!next.colorPresets.length && !next.customColors.length && req.mode === "similar") {
+    next.customColors = analysis.colors.filter((c) => /^#[0-9a-f]{6}$/i.test(c)).slice(0, 4);
+  }
+  const guesses = req.mode === "exact" ? analysis.locationGuesses.map((g) => g.query) : analysis.placesQueries;
+  next.extraQueries = [...new Set([...req.extraQueries, ...guesses])].filter((q) => q.length <= 120).slice(0, 8);
+  if (analysis.description) {
+    const prefix = req.mode === "exact" ? "Wat er op de foto te zien is" : "Uit de voorbeeldfoto's";
+    next.description = `${req.description ? `${req.description}\n` : ""}${prefix}: ${analysis.description}`.slice(0, 500);
+  }
+  return next;
 }
 
 /** A complete search with the Claude API doing the assessments. */
@@ -275,6 +339,29 @@ export async function runSearch(
   update();
 
   try {
+    // Reference photos: read them first, and let them fill in the search.
+    const references = await Promise.all(
+      req.referenceIds.map((refId) => {
+        if (!deps.loadReference) throw new Error("Voorbeeldfoto's worden hier niet ondersteund.");
+        return deps.loadReference(refId);
+      }),
+    );
+    if (references.length && deps.judge.analyzeReferences) {
+      emit({ type: "status", message: req.mode === "exact" ? "Foto bekijken: waar zou dit kunnen zijn?" : "Voorbeeldfoto's bekijken…" });
+      const analysis = await deps.judge.analyzeReferences(references, req.mode, req.place);
+      search.analysis = analysis;
+      req = applyReferenceAnalysis(req, analysis);
+      if (req.mode === "exact" && req.place.length < 2 && !req.center) {
+        const guess = analysis.locationGuesses[0];
+        if (!guess) throw new Error("Uit de foto valt niet af te leiden waar ze genomen is. Geef een regio op (gemeente of stad) en probeer opnieuw.");
+        req = { ...req, place: guess.query };
+      }
+      update();
+      if (analysis.locationGuesses.length) {
+        emit({ type: "status", message: `Mogelijke plekken: ${analysis.locationGuesses.slice(0, 3).map((g) => g.query).join(" · ")}` });
+      }
+    }
+
     const found = await findSpots(req, deps, emit, signal, cost, (geo) => {
       search.center = geo.location;
       search.resolvedPlace = geo.formattedAddress;
@@ -296,7 +383,7 @@ export async function runSearch(
           cost.streetViewImages++;
         }
         const context = `${pano.name} (${pano.detail}), Street View from ${pano.panoDate ?? "unknown date"}`;
-        const verdict = await deps.judge.assess(brief, views, context);
+        const verdict = await deps.judge.assess(brief, views, context, references);
         cost.claudeInputTokens += verdict.inputTokens;
         cost.claudeOutputTokens += verdict.outputTokens;
         const a = verdict.assessment;

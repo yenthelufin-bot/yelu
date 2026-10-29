@@ -26,9 +26,26 @@
   <main id="view-search" class="layout">
     <form id="search-form" class="panel form" novalidate>
       <section>
+        <div class="mode-tabs" role="group" aria-label="Soort zoektocht">
+          <button type="button" data-mode="brief" aria-pressed="true">Op wensen</button>
+          <button type="button" data-mode="similar" aria-pressed="false">Op voorbeeldfoto</button>
+          <button type="button" data-mode="exact" aria-pressed="false">Waar is deze foto?</button>
+        </div>
+        <div id="photo-box" hidden>
+          <p class="hint" id="photo-hint"></p>
+          <label class="dropzone" id="dropzone">
+            <input type="file" id="photo-input" accept="image/*" multiple hidden>
+            <span>Sleep foto's hierheen of <u>klik om te kiezen</u></span>
+          </label>
+          <div id="photo-thumbs" class="thumbs"></div>
+          <div id="gps-result" class="result" hidden></div>
+        </div>
+      </section>
+
+      <section>
         <h2>Waar?</h2>
         <label class="field">
-          <span>Gemeente of stad</span>
+          <span id="place-label">Gemeente of stad</span>
           <input id="place" name="place" type="text" placeholder="bv. Gent, Charleroi, Zeebrugge" autocomplete="off" required>
         </label>
         <label class="field">
@@ -39,8 +56,8 @@
         <p id="zone-hint" class="hint">Typ een plaats om de zoekzone op de kaart te zien.</p>
       </section>
 
-      <section>
-        <h2>Wat voor locatie?</h2>
+      <section class="brief-only">
+        <h2>Wat voor locatie? <em class="optional-note" hidden>(optioneel: de foto bepaalt het al)</em></h2>
         <div id="location-types" class="chips" role="group" aria-label="Type locatie"></div>
         <label class="field">
           <span>Beschrijf wat je zoekt <em>(optioneel, in eigen woorden)</em></span>
@@ -52,8 +69,8 @@
         </label>
       </section>
 
-      <section>
-        <h2>Kleursetting</h2>
+      <section class="brief-only">
+        <h2>Kleursetting <em class="optional-note" hidden>(optioneel)</em></h2>
         <div id="color-presets" class="chips swatch-chips" role="group" aria-label="Kleursetting"></div>
         <div class="custom-colors">
           <span class="label">Eigen kleuren</span>
@@ -62,7 +79,7 @@
         </div>
       </section>
 
-      <section>
+      <section class="brief-only">
         <h2>Extra wensen</h2>
         <div id="extra-filters" class="chips" role="group" aria-label="Extra wensen"></div>
       </section>
@@ -112,6 +129,7 @@
           <button type="button" id="cancel" class="ghost">Stoppen</button>
         </div>
         <div class="progress" aria-hidden="true"><div id="progress-bar"></div></div>
+        <div id="analysis" class="analysis" hidden></div>
         <p id="run-meta" class="hint"></p>
 
         <div id="results-map" class="results-map" aria-label="Kaart met resultaten"></div>
@@ -126,6 +144,8 @@
             <option value="distance">Sorteer op afstand</option>
           </select>
           <span class="spacer"></span>
+          <button type="button" id="open-share" class="ghost small">Deel selectie</button>
+          <a id="open-print" class="ghost small" href="#" target="_blank" rel="noopener">Locatieboek (PDF)</a>
           <div class="export">
             <span>Exporteer</span>
             <a id="export-kml" class="ghost small" href="#">KML</a>
@@ -229,6 +249,26 @@
     </section>
   </main>
 
+  <dialog id="share-dialog" class="dialog">
+    <form method="dialog" class="dialog-body" id="share-form">
+      <h2>Deel een selectie</h2>
+      <p class="hint">Je klant, model of team krijgt een pagina met de locaties en kan per plek 👍 of 👎 geven, met een opmerking. Hun stemmen verschijnen hier bij je resultaten.</p>
+      <label class="field"><span>Titel</span><input type="text" id="share-title" maxlength="120"></label>
+      <label class="field"><span>Bericht <em>(optioneel)</em></span><textarea id="share-message" rows="2" maxlength="1000" placeholder="bv. Welke spreekt jullie het meest aan voor de shoot van 14 juni?"></textarea></label>
+      <fieldset class="field">
+        <legend>Welke locaties?</legend>
+        <label class="check"><input type="radio" name="share-scope" value="favorites" checked> Mijn favorieten (<span id="share-fav-count">0</span>)</label>
+        <label class="check"><input type="radio" name="share-scope" value="visible"> Alles wat nu getoond wordt (<span id="share-visible-count">0</span>)</label>
+      </fieldset>
+      <p id="share-error" class="error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="primary" id="share-create">Maak link</button>
+        <button type="submit" class="ghost" value="close">Sluiten</button>
+      </div>
+      <div id="share-list" class="share-list"></div>
+    </form>
+  </dialog>
+
   <template id="card-template">
     <article class="card">
       <div class="shots">
@@ -239,16 +279,22 @@
       <div class="card-body">
         <h3 class="name"></h3>
         <p class="meta"></p>
+        <div class="badges"></div>
         <div class="palette"></div>
         <p class="summary"></p>
         <ul class="pros"></ul>
         <ul class="cons"></ul>
         <p class="light"></p>
         <div class="tags"></div>
+        <p class="access-notes"></p>
+        <div class="contact" hidden></div>
+        <div class="votes" hidden></div>
         <textarea class="note" rows="2" placeholder="Notitie (bv. toestemming vragen, beste uur)…"></textarea>
         <div class="actions">
           <button type="button" class="fav ghost small" aria-pressed="false">★ Favoriet</button>
           <button type="button" class="reject ghost small" aria-pressed="false">✕ Afwijzen</button>
+          <button type="button" class="more ghost small">Meer zoals deze</button>
+          <button type="button" class="find-contact ghost small">Zoek contact</button>
           <button type="button" class="embed ghost small">360° bekijken</button>
           <a class="sv ghost small" target="_blank" rel="noopener">Street View ↗</a>
           <a class="route ghost small" target="_blank" rel="noopener">Route ↗</a>

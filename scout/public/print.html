@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Locatieboek</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <style>
+    :root { --text: #1f1d1a; --muted: #6b665e; --line: #ddd6cb; --accent: #d1631c; --good: #2f7d4f; --bad: #a33a2b; --mid: #b7791f; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #e9e5df; color: var(--text); font: 11pt/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .toolbar { position: sticky; top: 0; z-index: 1000; display: flex; gap: 1rem; align-items: center; justify-content: center; flex-wrap: wrap; padding: 0.75rem 1rem; background: #fff; border-bottom: 1px solid var(--line); }
+    .toolbar button { font: inherit; font-weight: 700; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 0.6rem 1.1rem; cursor: pointer; }
+    .toolbar span { color: var(--muted); font-size: 0.9rem; }
+    .page { width: 210mm; min-height: 297mm; margin: 1rem auto; padding: 12mm; background: #fff; box-shadow: 0 2px 12px rgb(0 0 0 / 0.12); page-break-after: always; break-after: page; overflow: hidden; }
+    .page:last-child { page-break-after: auto; break-after: auto; }
+    h1 { font-size: 22pt; margin: 0 0 4mm; }
+    h2 { font-size: 16pt; margin: 0; }
+    .muted { color: var(--muted); }
+    .cover-map { height: 120mm; border: 1px solid var(--line); border-radius: 3mm; margin: 6mm 0; }
+    .index { columns: 2; column-gap: 8mm; padding-left: 5mm; margin: 0; }
+    .index li { break-inside: avoid; margin-bottom: 1.5mm; }
+    .loc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 4mm; border-bottom: 2px solid var(--accent); padding-bottom: 2mm; margin-bottom: 4mm; }
+    .score { font-weight: 800; font-size: 14pt; color: var(--accent); white-space: nowrap; }
+    .hero { width: 100%; height: 88mm; object-fit: cover; border-radius: 2mm; display: block; background: #eee; }
+    .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2mm; margin-top: 2mm; }
+    .thumbs img { width: 100%; height: 34mm; object-fit: cover; border-radius: 1.5mm; background: #eee; }
+    .cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 6mm; margin-top: 4mm; font-size: 9.5pt; line-height: 1.38; }
+    .mini-map { height: 52mm; border: 1px solid var(--line); border-radius: 2mm; }
+    .facts { margin: 0; }
+    .facts dt { font-weight: 700; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-top: 2.2mm; }
+    .facts dd { margin: 0.5mm 0 0; }
+    .palette { display: flex; height: 5mm; border-radius: 1mm; overflow: hidden; margin-top: 3mm; }
+    .palette i { flex: 1; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    ul.plain { margin: 0.5mm 0 0; padding-left: 4.5mm; }
+    .note { white-space: pre-line; border-left: 3px solid var(--accent); padding-left: 3mm; }
+    .links { font-size: 8.5pt; word-break: break-all; color: var(--muted); }
+    .empty { text-align: center; padding: 4rem 1rem; }
+    @media print {
+      body { background: #fff; }
+      .toolbar { display: none; }
+      .page { margin: 0; box-shadow: none; width: auto; min-height: auto; height: 272mm; padding: 0; }
+      @page { size: A4; margin: 12mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button type="button" id="print">Opslaan als PDF / afdrukken</button>
+    <span>Kies in het afdrukvenster "Opslaan als PDF" (of "Microsoft Print to PDF") als printer.</span>
+  </div>
+  <div id="book"><p class="empty">Locatieboek laden…</p></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script type="module" src="print.js"></script>
+</body>
+</html>

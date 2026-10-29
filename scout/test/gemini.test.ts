@@ -138,3 +138,35 @@ test("retry delay parsing", () => {
   assert.equal(retryDelaySeconds({ error: { details: [{ retryDelay: "12.5s" }] } }), 12.5);
   assert.equal(retryDelaySeconds({ error: {} }), null);
 });
+
+test("analysing reference photos: guesses sorted by confidence, broken answers degrade gracefully", async () => {
+  const analysis = {
+    description: "Brug over een kanaal met een kapel.",
+    location_types: ["water", "historisch"],
+    colors: ["#8c5a3c"],
+    places_queries: [],
+    location_guesses: [
+      { query: "Grasbrug Gent", confidence: 30, why: "kade" },
+      { query: "Sint-Michielsbrug Gent", confidence: 85, why: "torens" },
+    ],
+  };
+  const { j, calls } = judge([ok(JSON.stringify(analysis))]);
+  const r = await j.analyzeReferences([Buffer.from("ref")], "exact", "Gent");
+  assert.deepEqual(r.locationGuesses.map((g) => g.query), ["Sint-Michielsbrug Gent", "Grasbrug Gent"]);
+  const body = JSON.parse(calls[0].init.body as string);
+  assert.match(body.contents[0].parts.at(-1).text, /WHERE a photo was taken[\s\S]*around: Gent/);
+  assert.equal(body.contents[0].parts[0].inlineData.mimeType, "image/jpeg");
+
+  const broken = await judge([ok("geen json")]).j.analyzeReferences([Buffer.from("ref")], "similar", "");
+  assert.deepEqual(broken.locationGuesses, []);
+  assert.equal(broken.description, "");
+});
+
+test("reference photos are sent before the Street View images", async () => {
+  const { j, calls } = judge([ok(JSON.stringify(answer))]);
+  await j.assess("B", views, "x", [Buffer.from("refA")]);
+  const parts = JSON.parse(calls[0].init.body as string).contents[0].parts;
+  assert.match(parts[0].text, /Reference photo 1/);
+  assert.equal(parts[1].inlineData.data, Buffer.from("refA").toString("base64"));
+  assert.match(parts[2].text, /Image 0/);
+});

@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { BetaMessage } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { z } from "zod";
 import { COLOR_PRESETS, EXTRA_FILTERS, LOCATION_TYPES } from "./presets.ts";
-import type { ColorSwatch, SearchRequest } from "./types.ts";
+import type { AccessVerdict, ColorSwatch, SearchRequest } from "./types.ts";
 
 export const MODEL = "claude-opus-5-5";
 // USD per million tokens for MODEL, used for the cost shown in the UI.
@@ -25,6 +25,9 @@ export interface Assessment {
   strengths: string[];
   concerns: string[];
   tags: string[];
+  access: AccessVerdict;
+  accessNotes: string;
+  similarity: number | null;
 }
 
 export interface AssessmentResult {
@@ -38,7 +41,21 @@ export interface AssessmentResult {
 const OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["usable", "score", "type_match", "color_score", "palette", "best_view_index", "summary", "strengths", "concerns", "tags"],
+  required: [
+    "usable",
+    "score",
+    "type_match",
+    "color_score",
+    "palette",
+    "best_view_index",
+    "summary",
+    "strengths",
+    "concerns",
+    "tags",
+    "access",
+    "access_notes",
+    "similarity",
+  ],
   properties: {
     usable: { type: "boolean", description: "false if the images are indoor, black, blurred, or show nothing assessable" },
     score: { type: "integer", description: "0-100 overall fit with the brief" },
@@ -59,6 +76,9 @@ const OUTPUT_SCHEMA = {
     strengths: { type: "array", items: { type: "string" }, description: "short Dutch bullet points" },
     concerns: { type: "array", items: { type: "string" }, description: "short Dutch bullet points: practical or visual problems" },
     tags: { type: "array", items: { type: "string" }, description: "3-6 short Dutch keywords" },
+    access: { type: "string", enum: ["publiek", "privé", "onduidelijk"], description: "whether the spot looks like public space or private property" },
+    access_notes: { type: "string", description: "one short Dutch sentence: what you see that tells you (fences, gates, signs, a yard, a public street)" },
+    similarity: { type: ["integer", "null"], description: "0-100 resemblance to the reference photos; null when there are none" },
   },
 } as const;
 
@@ -73,6 +93,10 @@ const AnswerSchema = z.object({
   strengths: z.array(z.string()),
   concerns: z.array(z.string()),
   tags: z.array(z.string()),
+  // Lenient on the newer fields, so a slightly off answer still counts.
+  access: z.enum(["publiek", "privé", "onduidelijk"]).catch("onduidelijk").default("onduidelijk"),
+  access_notes: z.string().catch("").default(""),
+  similarity: z.number().nullable().catch(null).default(null),
 });
 
 export const SYSTEM_PROMPT = `You are an experienced location scout for photo and video shoots. You get Google Street View images of one spot, taken from the same point in different directions, plus a brief from a photographer. Judge how well this spot would work as a shoot location for that brief.
@@ -84,6 +108,8 @@ How to score (0-100):
 - 0-39: does not match the brief.
 Judge the spot itself, not the quality of the Street View photo: overcast weather, a low camera position or a car in the frame are temporary. Do penalise permanent problems: heavy traffic roads, fences in front of the subject, construction, clutter that would be in every shot.
 For the colour setting, judge the colours of the place itself (buildings, surfaces, vegetation), not the sky or the weather on the day of capture.
+For access, say whether a crew could likely shoot there without asking: "publiek" for streets, squares, public parks and paths; "privé" for yards, company grounds, farmyards, fenced or gated sites and anything signed private; "onduidelijk" when you cannot tell. Base it on what you see.
+When reference photos are attached, they come before the Street View images and are labelled as such; the brief says how to use them.
 Write all text fields in Dutch (Flemish usage is fine), short and practical, as a scout would write them for a photographer.`;
 
 export function buildBrief(req: SearchRequest): string {
@@ -101,12 +127,35 @@ export function buildBrief(req: SearchRequest): string {
     .filter((f) => f !== undefined)
     .map((f) => `- ${f.brief}`);
 
-  const lines = [`Requested location type (any of these):`, ...types];
+  let lines = types.length ? [`Requested location type (any of these):`, ...types] : ["No location type chosen; go by the description and the reference photos."];
   if (req.description) lines.push("", `Photographer's own description of what they look for: ${req.description}`);
   if (req.shootType) lines.push("", `Type of shoot: ${req.shootType}`);
   lines.push("", colors.length ? `Requested colour setting: ${colors.join("; ")}` : "No colour setting requested: return color_score null.");
   if (extras.length) lines.push("", "Also weigh these wishes:", ...extras);
+  if (req.mode === "similar") {
+    lines.push(
+      "",
+      "REFERENCE PHOTOS: the photographer attached example photos of what they are after. Score mainly on how well this spot could produce a shot like those: the same kind of place, materials, mood, colours and composition. It does not need to be the same place. Set similarity to the same 0-100 judgement.",
+    );
+  } else if (req.mode === "exact") {
+    lines = [
+      "TASK: find the exact place where the reference photo was taken.",
+      "Score how likely it is that this Street View location IS that place, seen from roughly the same spot: the same buildings, shapes, materials, signs, street layout and skyline. 90-100 only when you recognise the same specific features; a merely similar place scores below 40. Set similarity to the same value, and in the summary say which features match or differ. Set type_match to 'geen' and color_score to null.",
+    ];
+  } else {
+    lines.push("", "No reference photos: return similarity null.");
+  }
   return lines.join("\n");
+}
+
+/** What the reference photos show, to steer the search before any Street View image is fetched. */
+export interface ReferenceAnalysis {
+  description: string;
+  locationTypes: string[];
+  colors: string[];
+  placesQueries: string[];
+  /** Exact mode: where the photo may have been taken, best guess first. */
+  locationGuesses: { query: string; confidence: number; why: string }[];
 }
 
 export class LocationJudge {
@@ -116,8 +165,12 @@ export class LocationJudge {
     this.client = client ?? new Anthropic();
   }
 
-  async assess(brief: string, views: ViewImage[], context: string): Promise<AssessmentResult> {
+  async assess(brief: string, views: ViewImage[], context: string, references: Buffer[] = []): Promise<AssessmentResult> {
     const content: Anthropic.Beta.Messages.BetaContentBlockParam[] = [];
+    references.forEach((jpeg, i) => {
+      content.push({ type: "text", text: `Reference photo ${i + 1} (from the photographer, not Street View)` });
+      content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: jpeg.toString("base64") } });
+    });
     views.forEach((view, i) => {
       content.push({ type: "text", text: `Image ${i} — camera heading ${Math.round(view.heading)}° (0 = north, 90 = east)` });
       content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: view.jpeg.toString("base64") } });
@@ -178,5 +231,8 @@ export function parseAssessment(text: string, viewCount: number): Assessment | n
     strengths: parsed.strengths.slice(0, 5),
     concerns: parsed.concerns.slice(0, 5),
     tags: parsed.tags.slice(0, 6),
+    access: parsed.access,
+    accessNotes: parsed.access_notes,
+    similarity: parsed.similarity === null ? null : clamp(parsed.similarity),
   };
 }

@@ -49,6 +49,8 @@ const AssessmentInput = z.object({
   strengths: z.array(z.string()).max(5),
   concerns: z.array(z.string()).max(5),
   tags: z.array(z.string()).max(6),
+  access: z.enum(["publiek", "privé", "onduidelijk"]).optional().describe("whether the spot looks public or private"),
+  access_notes: z.string().optional().describe("one short Dutch sentence on what tells you"),
 });
 
 export const INSTRUCTIONS = `Location Scout finds photo and video shoot locations in Belgium, the Netherlands and elsewhere, using Google Street View. You do the looking: the tools fetch the images, you judge them.
@@ -206,6 +208,9 @@ export function createScoutTools(ctx: ScoutContext) {
               strengths: a.strengths,
               concerns: a.concerns,
               tags: a.tags,
+              access: a.access ?? "onduidelijk",
+              accessNotes: a.access_notes ?? "",
+              similarity: null,
             },
             spot.headings,
             spot.spotId,

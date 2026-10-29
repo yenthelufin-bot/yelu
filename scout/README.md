@@ -73,6 +73,31 @@ Dubbelklik op het startbestand. Kies bij **Nieuwe zoektocht** je plaats, straal,
 
 Staat er "Kopieer opdracht voor Claude" in plaats van **Zoek locaties**? Dan draait er nog een oudere versie, bijvoorbeeld via een eerdere koppeling met de Claude desktop-app. Sluit het zwarte venster en dubbelklik opnieuw op het startbestand: de nieuwe versie start dan op een vrij adres ernaast en opent je browser daar.
 
+## Extra functies
+
+### Zoeken op voorbeeldfoto
+Kies bovenaan **Op voorbeeldfoto** en sleep 1 tot 4 foto's in het vak: een moodboard, een shot dat je mooi vindt, een eerdere locatie. Gemini bekijkt eerst wat voor plek het is (sfeer, materialen, kleuren) en vult je zoektocht daarmee aan. Daarna vergelijkt hij elke kandidaat met je voorbeelden. Op de kaartjes zie je hoeveel procent een plek erop lijkt.
+
+### Waar is deze foto genomen?
+Kies **Waar is deze foto?** en voeg één foto toe.
+- Zitten er **GPS-gegevens** in de foto (meestal bij foto's rechtstreeks van een gsm), dan zie je meteen de exacte plek, met links naar Google Maps, Street View en een route. Daar is geen AI voor nodig.
+- Zo niet (chat-apps en sociale media halen GPS weg), dan zoekt Gemini naar herkenningspunten, tekst op borden en architectuur. Hij maakt een paar gissingen, en de app vergelijkt de Street View-beelden ter plaatse met je foto. Een regio opgeven helpt veel.
+
+### Meer zoals deze
+Elke locatie heeft een knop **Meer zoals deze**. Die start een nieuwe zoektocht rond die plek (je kiest de straal), met het Street View-beeld van die plek als voorbeeld.
+
+### Toegang en contact
+- Elke locatie krijgt een label: **Publiek**, **Privé terrein** of **Toegang onduidelijk**, met de reden (een hek, een bord "privé", een openbare kade). Staat er in OpenStreetMap een toegangsregel, dan gaat die voor.
+- **Zoek contact** vraagt op wie de eigenaar of uitbater is, met telefoon en website. Komt de plek uit Google Places, dan is dat de plek zelf. Anders komen de gegevens uit OpenStreetMap, of het is de dichtstbijzijnde zaak; dat laatste wordt er duidelijk bij vermeld, zodat je kunt controleren. Dit gebeurt alleen als je op de knop klikt, binnen het gratis gebruik van Google (1.000 per maand).
+
+### Selectie delen met duimpjes
+Markeer favorieten en klik op **Deel selectie**. Je krijgt een link naar een pagina waar je klant, model of team per locatie 👍 of 👎 kan geven, met een opmerking. Hun reacties verschijnen bij je resultaten en in het locatieboek. Ze zien geen notities of contactgegevens.
+
+Omdat Location Scout op je eigen computer draait, werkt een link voor iemand anders alleen met de **internetlink** aan (in hetzelfde venster). Die gebruikt de gratis "quick tunnel" van Cloudflare. De eerste keer downloadt de app daarvoor het programma `cloudflared` (± 40 MB) van Cloudflare. De link werkt zolang Location Scout openstaat, en is bij elke herstart een nieuwe. Via die link is alleen de deelpagina bereikbaar; de rest van de app (instellingen, zoektochten, sleutels) niet.
+
+### Locatieboek (PDF)
+**Locatieboek (PDF)** maakt een document met een overzichtskaart en daarna per locatie één pagina: de foto's, een kaartje, lichtadvies, toegang, contact, je notities en de reacties. Neemt je favorieten, of alles wat getoond wordt. Kies in het afdrukvenster **Opslaan als PDF**.
+
 ## Tips
 
 - **Combineer types**, bijvoorbeeld *Industrieel* + *Water*, voor een silo aan het kanaal.
@@ -101,7 +126,10 @@ npm run typecheck  # TypeScript-controle
 
 De code is TypeScript en draait rechtstreeks met Node, zonder bouwstap:
 
-- `src/gemini.ts`: de beoordeling door Gemini (gratis versie)
+- `src/gemini.ts`: de beoordeling door Gemini (gratis versie), ook van voorbeeldfoto's
+- `src/contact.ts`: eigenaar en contact opzoeken
+- `src/tunnel.ts`: de internetlink voor gedeelde selecties
+- `public/share.*`, `public/print.*`: de deelpagina en het locatieboek
 - `src/mcp.ts`: een optionele koppeling met de Claude desktop-app (in te stellen met `npm run setup`), los van de webapp
 - `src/pipeline.ts`: het zoekproces
 - `src/usage.ts`: de bewaking van het gratis Google-gebruik
