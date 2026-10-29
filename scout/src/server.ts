@@ -11,6 +11,7 @@ import { COLOR_PRESETS, EXTRA_FILTERS, LOCATION_TYPES, SHOOT_TYPES } from "./pre
 import { SearchStore } from "./store.ts";
 import { ResultPatchSchema, type SavedSearch, SearchRequestSchema } from "./types.ts";
 import { meteredMaps, UsageMeter } from "./usage.ts";
+import { checkKey, claudeConfigPath, isClaudeLinked, linkClaudeDesktop, looksLikeGoogleKey, MCP_SCRIPT, setEnvValue } from "../setup.mjs";
 import { LocationJudge, type ViewImage } from "./vision.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -51,6 +52,25 @@ export interface AppOptions {
   store?: SearchStore;
   images?: ImageCache;
   meter?: UsageMeter;
+  /** Where the settings screen saves the Google key and links the Claude app; overridable for tests. */
+  envFile?: string;
+  claudeConfigFile?: string;
+  checkGoogleKey?: (key: string) => Promise<string[]>;
+}
+
+/**
+ * The settings endpoints write files on this computer, so only the app's own
+ * page may call the API: the Host must be this machine (against DNS
+ * rebinding) and a write must come from the same origin (against other
+ * websites posting to localhost).
+ */
+function isTrustedRequest(req: IncomingMessage): boolean {
+  const host = req.headers.host ?? "";
+  const hostname = host.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+  if (!["localhost", "127.0.0.1", "::1"].includes(hostname)) return false;
+  if (req.method === "GET" || req.method === "HEAD") return true;
+  const origin = req.headers.origin;
+  return origin === undefined || origin === `http://${host}`;
 }
 
 class HttpError extends Error {
@@ -93,11 +113,16 @@ export function createApp(options: AppOptions): http.Server {
   const images = options.images ?? new ImageCache();
   const meter = options.meter ?? new UsageMeter(options.dataDir);
   const running = new Map<string, Running>();
+  // Can change at runtime through the settings screen.
+  let googleKey = options.googleKey;
+  const envFile = options.envFile ?? path.join(ROOT, ".env");
+  const claudeConfigFile = options.claudeConfigFile ?? claudeConfigPath();
+  const checkGoogleKey = options.checkGoogleKey ?? ((key: string) => checkKey(key));
 
   const googleMaps = () => {
     if (options.deps) return options.deps.maps;
-    if (!options.googleKey) throw new HttpError(503, "GOOGLE_MAPS_API_KEY ontbreekt. Zie README.");
-    return meteredMaps(new GoogleMaps(options.googleKey), meter);
+    if (!googleKey) throw new HttpError(503, "Er is nog geen Google-sleutel. Vul hem in bij Instellingen.");
+    return meteredMaps(new GoogleMaps(googleKey), meter);
   };
 
   const buildDeps = (): Omit<PipelineDeps, "onImages" | "onUpdate"> => {
@@ -124,6 +149,8 @@ export function createApp(options: AppOptions): http.Server {
     const parts = url.pathname.split("/").filter(Boolean);
     const method = req.method ?? "GET";
 
+    if (parts[0] === "api" && !isTrustedRequest(req)) throw new HttpError(403, "Alleen toegankelijk vanaf deze computer");
+
     if (parts[0] !== "api") {
       const file = path.join(PUBLIC_DIR, url.pathname === "/" ? "index.html" : path.normalize(url.pathname));
       if (!file.startsWith(PUBLIC_DIR + path.sep)) throw new HttpError(404, "Niet gevonden");
@@ -137,14 +164,15 @@ export function createApp(options: AppOptions): http.Server {
     // GET /api/config
     if (parts[1] === "config" && method === "GET") {
       sendJson(res, 200, {
-        ready: Boolean(options.deps || (options.googleKey && options.hasAnthropicCredentials)),
+        ready: Boolean(options.deps || (googleKey && options.hasAnthropicCredentials)),
         // Without an API key, Claude does the assessments in the Claude app (free with a subscription).
         engine: options.deps || options.hasAnthropicCredentials ? "api" : "claude-app",
-        hasGoogleKey: Boolean(options.googleKey),
+        hasGoogleKey: Boolean(googleKey),
+        claudeLinked: isClaudeLinked(claudeConfigFile),
         hasAnthropicKey: options.hasAnthropicCredentials,
         // For the Street View embed in the browser. The server only listens on
         // localhost by default; restrict the key in Google Cloud as well.
-        embedKey: options.googleKey ?? null,
+        embedKey: googleKey ?? null,
         locationTypes: LOCATION_TYPES.map(({ id, label }) => ({ id, label })),
         colorPresets: COLOR_PRESETS.map(({ id, label, swatches }) => ({ id, label, swatches })),
         extraFilters: EXTRA_FILTERS,
@@ -171,6 +199,34 @@ export function createApp(options: AppOptions): http.Server {
       const parsed = SearchRequestSchema.safeParse(await readJson(req));
       if (!parsed.success) throw new HttpError(400, parsed.error.issues[0].message);
       sendJson(res, 200, { usage: estimateUsage(parsed.data), free: meter.report() });
+      return;
+    }
+
+    // POST /api/settings/google-key: test the key with Google, then save it in .env
+    if (parts[1] === "settings" && parts[2] === "google-key" && method === "POST") {
+      const body = (await readJson(req)) as { key?: unknown };
+      const key = typeof body.key === "string" ? body.key.trim() : "";
+      if (!looksLikeGoogleKey(key)) throw new HttpError(400, "Dat lijkt geen Google-sleutel. Die bestaat uit letters, cijfers, - en _.");
+      const problems = await checkGoogleKey(key);
+      if (problems.length) {
+        sendJson(res, 200, { saved: false, problems });
+        return;
+      }
+      setEnvValue(envFile, "GOOGLE_MAPS_API_KEY", key);
+      googleKey = key;
+      process.env.GOOGLE_MAPS_API_KEY = key;
+      sendJson(res, 200, { saved: true, problems: [] });
+      return;
+    }
+
+    // POST /api/settings/link-claude: add Location Scout to the Claude desktop app's config
+    if (parts[1] === "settings" && parts[2] === "link-claude" && method === "POST") {
+      try {
+        const result = linkClaudeDesktop(claudeConfigFile, process.execPath, MCP_SCRIPT);
+        sendJson(res, 200, { result, configFile: claudeConfigFile });
+      } catch (err) {
+        throw new HttpError(500, err instanceof Error ? err.message : String(err));
+      }
       return;
     }
 
@@ -353,6 +409,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     googleKey: process.env.GOOGLE_MAPS_API_KEY,
     hasAnthropicCredentials: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
     meter: new UsageMeter(dataDir, { enforced: process.env.SCOUT_FREE_LIMITS !== "off" }),
+  });
+  app.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EADDRINUSE") throw err;
+    // Usually the Claude app already serves the page; the start file opens the browser anyway.
+    console.log(`Location Scout draait al op http://localhost:${port}`);
+    process.exit(0);
   });
   app.listen(port, host, () => {
     console.log(`Location Scout draait op http://${host === "0.0.0.0" ? "localhost" : host}:${port}`);

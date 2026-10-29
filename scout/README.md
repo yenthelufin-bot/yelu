@@ -31,58 +31,38 @@ Markeer favorieten, wijs plekken af en schrijf notities (bv. "toestemming vragen
 
 ## Installatie
 
-Drie stappen. De tweede doet de rest automatisch.
+Geen terminal nodig.
 
-### 1. Node.js
+### 1. Node.js en de Claude-app
 
 Installeer [Node.js](https://nodejs.org) **22.18 of nieuwer** (kies "LTS"), en de [Claude desktop-app](https://claude.ai/download) als je die nog niet hebt.
 
-### 2. Google-sleutel aanmaken
+### 2. Location Scout starten
 
-In de [Google Cloud Console](https://console.cloud.google.com/):
+Dubbelklik in de map `scout` op:
 
-1. Maak een project aan en koppel een facturatieaccount. Google vraagt een bankkaart, maar Location Scout blijft binnen het gratis gebruik.
-2. Zet onder *APIs & Services → Library* deze vier API's aan: **Geocoding API**, **Places API (New)**, **Street View Static API** en **Maps Embed API**.
-3. Maak onder *Credentials* een **API-sleutel**. Beperk ze via *API restrictions* tot die vier API's.
+- **Mac**: `Start Location Scout.command`. De eerste keer weigert macOS misschien omdat het bestand van internet komt. Klik dan met de rechtermuisknop op het bestand → **Open** → **Open**.
+- **Windows**: `Start Location Scout.bat`. Toont Windows een blauw venster ("Windows heeft uw pc beschermd")? Klik dan op **Meer informatie** → **Toch uitvoeren**.
 
-Wil je extra zekerheid? Zet in Google Cloud onder *Billing → Budgets* een budgetwaarschuwing van € 1.
+De eerste keer worden de onderdelen geïnstalleerd; dat duurt een minuutje. Daarna opent Location Scout vanzelf in je browser, op **http://localhost:4173**. Laat het zwarte venster open zolang je de app gebruikt.
 
-### 3. Setup draaien
+### 3. Instellen in de app
 
-Open een terminal (Mac: *Terminal*, Windows: *PowerShell*) in de map `scout` en typ:
+De app opent de eerste keer op **Instellingen**:
 
-```bash
-npm run setup
-```
+1. **Google-sleutel.** De pagina legt stap voor stap uit hoe je die aanmaakt, met directe links naar de vier API's. Plak hem en klik op **Test en bewaar**. De app test hem meteen bij Google en zegt wat er eventueel nog ontbreekt.
+2. **Koppelen aan de Claude-app.** Eén klik. Je bestaande Claude-instellingen blijven behouden, met een back-up.
+3. Sluit de Claude desktop-app **volledig** af en open ze opnieuw.
 
-De setup:
-- controleert je Node-versie;
-- installeert de onderdelen;
-- vraagt je Google-sleutel, bewaart die in `scout/.env` en test of hij werkt;
-- koppelt Location Scout aan de Claude desktop-app. Je bestaande instellingen blijven behouden en de oude versie wordt bewaard als `.backup`.
-
-Sluit daarna de Claude desktop-app **volledig** af en open ze opnieuw. In een nieuw gesprek staat Location Scout dan bij je tools/connectors.
-
-Gebruik je Claude Code in deze repo? Dan is de koppeling al ingesteld in `.mcp.json`.
+Onder Instellingen zie je ook hoeveel van het gratis Google-gebruik je deze maand al gebruikt hebt.
 
 <details>
-<summary>Liever met de hand koppelen?</summary>
+<summary>Liever met de terminal?</summary>
 
-Open in de Claude desktop-app **Instellingen → Developer → Edit Config** en voeg dit toe, met het volledige pad naar deze map:
-
-```json
-{
-  "mcpServers": {
-    "location-scout": {
-      "command": "node",
-      "args": ["/volledig/pad/naar/yelu/scout/src/mcp.ts"]
-    }
-  }
-}
-```
-
-Zet je sleutel dan zelf in `scout/.env` (kopieer `.env.example`) en voer `npm install` uit in de map `scout`.
+In de map `scout` doet `npm run setup` dezelfde stappen: installeren, sleutel vragen en testen, en koppelen aan de Claude-app. Daarna start `npm start` de app.
 </details>
+
+Gebruik je Claude Code in deze repo? Dan is de koppeling al ingesteld in `.mcp.json`.
 
 ## Gebruiken
 
@@ -94,7 +74,7 @@ Claude zoekt de plekken, bekijkt ze één voor één en geeft je de beste met ee
 
 **Via de resultatenpagina.** Zolang de Claude-app draait, staat die pagina op **http://localhost:4173**. Daar stel je je zoektocht in met knoppen en een kaart, en klik je op **Kopieer opdracht voor Claude**. Plak de opdracht in de Claude-app. De pagina toont live hoe Claude vordert. Onder *Eerdere zoektochten* vind je alles terug.
 
-Wil je de resultatenpagina zonder de Claude-app openen? Typ dan `npm start` in de map `scout/`.
+Wil je de pagina openen zonder de Claude-app? Dubbelklik dan op het startbestand.
 
 ## Tips
 

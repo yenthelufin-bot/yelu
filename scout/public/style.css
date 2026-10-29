@@ -106,7 +106,7 @@ h3 { font-size: 1rem; margin: 0; }
 .field > span, .field legend, .custom-colors .label { font-size: 0.85rem; color: var(--muted); }
 .field em { font-style: normal; opacity: 0.8; }
 
-input[type="text"], textarea, select {
+input[type="text"], input[type="password"], textarea, select {
   width: 100%;
   font: inherit;
   color: var(--text);
@@ -301,6 +301,39 @@ button.ghost:hover, a.ghost:hover { border-color: var(--accent); }
 .skipped summary { cursor: pointer; }
 
 .history { margin: 1.25rem; }
+
+.settings { max-width: 760px; margin: 1.25rem auto; padding: 0 1.25rem; display: grid; gap: 1rem; }
+.step-head { display: flex; gap: 0.85rem; align-items: flex-start; margin-bottom: 0.75rem; }
+.step-head h2 { margin-bottom: 0.1rem; }
+.step-num {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 800;
+}
+.step.done .step-num { background: var(--good); color: #fff; }
+.step-status { margin: 0; color: var(--muted); font-size: 0.9rem; }
+.step.done .step-status { color: var(--good); font-weight: 600; }
+.howto { padding-left: 1.2rem; margin: 0.6rem 0 1rem; display: grid; gap: 0.45rem; font-size: 0.92rem; }
+.howto a { color: var(--accent); }
+.api-list { margin: 0.35rem 0 0; }
+.key-form { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; margin-top: 0.75rem; }
+.key-form .field { flex: 1 1 260px; margin: 0; }
+.result { margin-top: 0.85rem; padding: 0.7rem 0.9rem; border-radius: 8px; font-size: 0.92rem; border: 1px solid var(--line); }
+.result.good { border-color: var(--good); }
+.result.bad { border-color: var(--bad); }
+.result ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+.usage-bars { display: grid; gap: 0.75rem; }
+.usage-row { display: grid; gap: 0.3rem; font-size: 0.9rem; }
+.usage-row .bar { height: 8px; border-radius: 999px; background: var(--panel-2); overflow: hidden; border: 1px solid var(--line); }
+.usage-row .bar i { display: block; height: 100%; background: var(--good); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-left: 0.3rem; vertical-align: middle; }
+.banner a { color: inherit; font-weight: 700; }
 .history-list { display: grid; gap: 0.75rem; }
 .history-item {
   display: flex;
@@ -335,6 +368,7 @@ button.ghost:hover, a.ghost:hover { border-color: var(--accent); }
   .form { position: static; max-height: none; }
   .topbar { flex-wrap: wrap; gap: 0.5rem; padding: 0.6rem 1rem; }
   .history { margin: 1rem; }
+  .settings { padding: 0 1rem; margin: 1rem auto; }
   .history-item { flex-direction: column; align-items: flex-start; }
   .cards { grid-template-columns: 1fr; }
 }

@@ -17,6 +17,7 @@
     <nav class="tabs" role="tablist">
       <button role="tab" data-view="search" aria-selected="true">Nieuwe zoektocht</button>
       <button role="tab" data-view="history" aria-selected="false">Eerdere zoektochten</button>
+      <button role="tab" data-view="settings" aria-selected="false">Instellingen <span id="settings-dot" class="dot" hidden></span></button>
     </nav>
   </header>
 
@@ -147,6 +148,68 @@
   <main id="view-history" class="panel history" hidden>
     <h2>Eerdere zoektochten</h2>
     <div id="history-list" class="history-list"></div>
+  </main>
+
+  <main id="view-settings" class="settings" hidden>
+    <section class="panel step" id="step-google">
+      <div class="step-head">
+        <span class="step-num">1</span>
+        <div>
+          <h2>Google-sleutel</h2>
+          <p class="step-status" id="google-status"></p>
+        </div>
+      </div>
+      <details id="google-help">
+        <summary>Hoe maak ik een sleutel aan? (± 10 minuten)</summary>
+        <ol class="howto">
+          <li>Ga naar <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a> en log in met je Google-account.</li>
+          <li>Klik bovenaan op de projectkiezer → <strong>Nieuw project</strong>, noem het <em>Location Scout</em> en kies het daarna.</li>
+          <li>Menu ☰ → <strong>Facturering</strong>: koppel een factureringsaccount. Google vraagt een bankkaart, maar Location Scout blijft onder het gratis gebruik.</li>
+          <li>Menu ☰ → <strong>API's en services → Bibliotheek</strong>: zoek en schakel deze vier in:
+            <ul class="api-list">
+              <li><a href="https://console.cloud.google.com/apis/library/geocoding-backend.googleapis.com" target="_blank" rel="noopener">Geocoding API</a></li>
+              <li><a href="https://console.cloud.google.com/apis/library/places.googleapis.com" target="_blank" rel="noopener">Places API (New)</a></li>
+              <li><a href="https://console.cloud.google.com/apis/library/street-view-image-backend.googleapis.com" target="_blank" rel="noopener">Street View Static API</a></li>
+              <li><a href="https://console.cloud.google.com/apis/library/maps-embed-backend.googleapis.com" target="_blank" rel="noopener">Maps Embed API</a></li>
+            </ul>
+          </li>
+          <li><strong>API's en services → Inloggegevens</strong> → <strong>+ Inloggegevens maken → API-sleutel</strong>. Kopieer de sleutel.</li>
+          <li>Aangeraden: bewerk de sleutel en beperk hem onder <em>API-beperkingen</em> tot die vier API's. Zet onder <em>Facturering → Budgetten</em> een budgetmelding van € 1.</li>
+        </ol>
+      </details>
+      <form id="google-form" class="key-form" autocomplete="off">
+        <label class="field">
+          <span>Plak hier je sleutel</span>
+          <input id="google-key" type="password" placeholder="AIza…" spellcheck="false" autocomplete="off">
+        </label>
+        <button type="submit" class="primary" id="google-save">Test en bewaar</button>
+      </form>
+      <div id="google-result" class="result" role="status" hidden></div>
+    </section>
+
+    <section class="panel step" id="step-claude">
+      <div class="step-head">
+        <span class="step-num">2</span>
+        <div>
+          <h2>Koppelen aan de Claude-app</h2>
+          <p class="step-status" id="claude-status"></p>
+        </div>
+      </div>
+      <p class="hint">Claude bekijkt de Street View-beelden in de Claude desktop-app, gratis binnen je abonnement. Deze knop zet Location Scout bij de tools van de Claude-app. Je andere instellingen blijven behouden.</p>
+      <button type="button" class="primary" id="claude-link">Koppel aan de Claude-app</button>
+      <div id="claude-result" class="result" role="status" hidden></div>
+    </section>
+
+    <section class="panel step">
+      <div class="step-head">
+        <span class="step-num">3</span>
+        <div>
+          <h2>Gratis gebruik deze maand</h2>
+          <p class="step-status">Location Scout stopt vóór de gratis grens van Google, dus je betaalt niets.</p>
+        </div>
+      </div>
+      <div id="usage-bars" class="usage-bars"></div>
+    </section>
   </main>
 
   <template id="card-template">

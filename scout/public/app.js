@@ -650,7 +650,9 @@ function switchView(view) {
   document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
   $("#view-search").hidden = view !== "search";
   $("#view-history").hidden = view !== "history";
+  $("#view-settings").hidden = view !== "settings";
   if (view === "history") renderHistory().catch((err) => alert(err.message));
+  else if (view === "settings") renderSettings();
   else setTimeout(() => {
     zoneMap.invalidateSize();
     resultsMap.invalidateSize();
@@ -658,15 +660,124 @@ function switchView(view) {
 }
 
 function showSetupWarning(c) {
-  if (c.hasGoogleKey) return;
   const banner = $("#setup-warning");
-  banner.innerHTML = "Nog niet klaar om te zoeken: <code>GOOGLE_MAPS_API_KEY</code> ontbreekt. Zet de sleutel in <code>scout/.env</code> en herstart (zie README).";
-  banner.hidden = false;
+  const todo = [!c.hasGoogleKey && "je Google-sleutel invullen", !c.claudeLinked && "koppelen aan de Claude-app"].filter(Boolean);
+  banner.hidden = !todo.length;
+  $("#settings-dot").hidden = !todo.length;
+  if (!todo.length) return;
+  banner.replaceChildren(`Nog even instellen: ${todo.join(" en ")}. `);
+  const link = document.createElement("a");
+  link.href = "#";
+  link.textContent = "Naar Instellingen →";
+  link.addEventListener("click", (e) => {
+    e.preventDefault();
+    switchView("settings");
+  });
+  banner.append(link);
+}
+
+// ---------- settings ----------
+
+function showResult(el, kind, title, items = []) {
+  el.hidden = false;
+  el.className = `result ${kind}`;
+  el.replaceChildren(title);
+  if (items.length) {
+    const ul = document.createElement("ul");
+    for (const item of items) {
+      const li = document.createElement("li");
+      li.textContent = item;
+      ul.append(li);
+    }
+    el.append(ul);
+  }
+}
+
+async function renderSettings() {
+  const c = state.config;
+  $("#step-google").classList.toggle("done", c.hasGoogleKey);
+  $("#google-status").textContent = c.hasGoogleKey ? "✓ Ingesteld en getest" : "Nog niet ingesteld";
+  $("#google-help").open = !c.hasGoogleKey;
+  $("#google-save").textContent = c.hasGoogleKey ? "Vervang sleutel" : "Test en bewaar";
+  $("#step-claude").classList.toggle("done", c.claudeLinked);
+  $("#claude-status").textContent = c.claudeLinked ? "✓ Gekoppeld" : "Nog niet gekoppeld";
+  $("#claude-link").textContent = c.claudeLinked ? "Opnieuw koppelen" : "Koppel aan de Claude-app";
+  try {
+    const usage = await api("/api/usage");
+    $("#usage-bars").replaceChildren(
+      ...usage.items.map((item) => {
+        const row = document.createElement("div");
+        row.className = "usage-row";
+        const label = document.createElement("span");
+        label.textContent = `${item.label}: ${item.used.toLocaleString("nl-BE")} van ${item.limit.toLocaleString("nl-BE")} gratis`;
+        const bar = document.createElement("div");
+        bar.className = "bar";
+        const fill = document.createElement("i");
+        fill.style.width = `${Math.min(100, (100 * item.used) / item.limit)}%`;
+        bar.append(fill);
+        row.append(label, bar);
+        return row;
+      }),
+    );
+  } catch {
+    // Not essential.
+  }
+}
+
+async function saveGoogleKey(event) {
+  event.preventDefault();
+  const input = $("#google-key");
+  const key = input.value.trim();
+  const out = $("#google-result");
+  if (!key) return showResult(out, "bad", "Plak eerst je sleutel in het veld.");
+  const button = $("#google-save");
+  button.disabled = true;
+  button.textContent = "Testen bij Google…";
+  try {
+    const r = await api("/api/settings/google-key", { method: "POST", body: JSON.stringify({ key }) });
+    if (r.saved) {
+      input.value = "";
+      showResult(out, "good", "✓ De sleutel werkt en is bewaard.", [
+        "Stond de Claude desktop-app al open? Sluit ze dan volledig af en open ze opnieuw, zodat ze de sleutel ook kent.",
+      ]);
+      state.config = await api("/api/config");
+      showSetupWarning(state.config);
+    } else {
+      showResult(out, "bad", "Google aanvaardt de sleutel nog niet. Niets bewaard.", [
+        ...r.problems,
+        "Controleer of de vier API's ingeschakeld zijn en de facturatie gekoppeld is.",
+        "Een nieuwe sleutel werkt soms pas na 5 minuten; probeer dan opnieuw.",
+      ]);
+    }
+  } catch (err) {
+    showResult(out, "bad", err.message);
+  } finally {
+    button.disabled = false;
+    renderSettings();
+  }
+}
+
+async function linkClaude() {
+  const out = $("#claude-result");
+  try {
+    const r = await api("/api/settings/link-claude", { method: "POST" });
+    showResult(out, "good", "✓ Gekoppeld. Sluit de Claude desktop-app nu volledig af (Mac: ⌘Q, Windows: rechtsklik op het icoon in de taakbalk → Afsluiten) en open ze opnieuw.", [
+      r.result === "updated" ? "Je bestaande Claude-instellingen zijn behouden; de vorige versie is bewaard als .backup." : `Instellingen aangemaakt in ${r.configFile}.`,
+      "Typ daarna in een nieuw gesprek bv.: \"Zoek industriële locaties aan het water rond Gent, 10 km, in roesttinten.\"",
+    ]);
+    state.config = await api("/api/config");
+    showSetupWarning(state.config);
+    renderSettings();
+  } catch (err) {
+    showResult(out, "bad", `Koppelen mislukt: ${err.message}`);
+  }
 }
 
 async function init() {
   state.config = await api("/api/config");
   showSetupWarning(state.config);
+  $("#google-form").addEventListener("submit", saveGoogleKey);
+  $("#claude-link").addEventListener("click", linkClaude);
   renderForm();
   renderCustomColors();
 
@@ -715,6 +826,7 @@ async function init() {
   };
   window.addEventListener("hashchange", openFromHash);
   openFromHash();
+  if (!location.hash && (!state.config.hasGoogleKey || !state.config.claudeLinked)) switchView("settings");
 }
 
 init().catch((err) => {
