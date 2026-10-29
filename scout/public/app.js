@@ -745,10 +745,7 @@ async function saveGemini(event) {
       state.config = await api("/api/config");
       showSetupWarning(state.config);
     } else {
-      showResult(out, "bad", "Gemini aanvaardt dit nog niet. Niets bewaard.", [
-        ...r.problems,
-        "Kopieer de sleutel opnieuw uit AI Studio, of probeer het andere model.",
-      ]);
+      showResult(out, "bad", "Gemini aanvaardt dit nog niet. Niets bewaard.", r.problems);
     }
   } catch (err) {
     showResult(out, "bad", err.message);

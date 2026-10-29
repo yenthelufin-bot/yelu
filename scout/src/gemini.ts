@@ -51,7 +51,36 @@ export class GeminiError extends Error {
 }
 
 interface ErrorBody {
-  error?: { code?: number; message?: string; status?: string; details?: { "@type"?: string; retryDelay?: string; violations?: { quotaId?: string }[] }[] };
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+    details?: { "@type"?: string; reason?: string; retryDelay?: string; violations?: { quotaId?: string }[] }[];
+  };
+}
+
+/**
+ * What went wrong with the key, in plain Dutch, followed by Google's own
+ * words so the exact cause is never hidden.
+ */
+export function explainKeyError(httpStatus: number, body: ErrorBody): string | null {
+  const message = body.error?.message ?? "";
+  const reason = body.error?.details?.find((d) => d.reason)?.reason ?? body.error?.status ?? "";
+  const google = ` (Google: "${message.trim()}"${reason ? `, ${reason}` : ""})`;
+  if (reason === "API_KEY_INVALID" || /API key not valid/i.test(message)) {
+    return `Google kent deze sleutel niet. Kopieer hem opnieuw, helemaal, uit aistudio.google.com/apikey: klik daar op de sleutel en gebruik de kopieerknop.${google}`;
+  }
+  if (reason === "API_KEY_EXPIRED" || /expired/i.test(message)) return `Deze sleutel is verlopen. Maak een nieuwe aan in AI Studio.${google}`;
+  if (reason === "API_KEY_SERVICE_BLOCKED" || /are blocked/i.test(message)) {
+    return `Deze sleutel mag Gemini niet gebruiken. Is het je Google Maps-sleutel? Maak een aparte sleutel aan op aistudio.google.com/apikey.${google}`;
+  }
+  if (reason === "SERVICE_DISABLED" || /has not been used in project|is disabled/i.test(message)) {
+    return `In het project van deze sleutel staat Gemini (de "Generative Language API") uit. Maak de sleutel aan op aistudio.google.com/apikey; daar wordt dat automatisch geregeld.${google}`;
+  }
+  if (/location is not supported/i.test(message)) return `Gemini is via de API niet beschikbaar vanaf je huidige locatie.${google}`;
+  if (httpStatus === 400 && /API key/i.test(message)) return `Er is iets mis met de sleutel.${google}`;
+  if (httpStatus === 401 || httpStatus === 403) return `Gemini weigert de sleutel.${google}`;
+  return null;
 }
 
 /** Seconds Google asks us to wait, from a RetryInfo detail such as "37s". */
@@ -132,8 +161,8 @@ export class GeminiJudge implements Judge {
       if (res.status === 404) {
         throw new GeminiError(`Het Gemini-model "${this.model}" bestaat niet of is niet beschikbaar voor je sleutel. Kies een ander model bij Instellingen.`, 404, true);
       }
-      if (res.status === 400 && /API key/i.test(message)) throw new GeminiError("De Gemini-sleutel is ongeldig.", 401, true);
-      if (res.status === 401 || res.status === 403) throw new GeminiError(`Gemini weigert de sleutel: ${message}`, res.status, true);
+      const keyProblem = explainKeyError(res.status, json);
+      if (keyProblem) throw new GeminiError(keyProblem, 401, true);
       throw new GeminiError(`Gemini: ${message}`, res.status, false);
     }
   }

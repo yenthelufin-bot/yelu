@@ -125,7 +125,13 @@ test("calls never overlap and are spaced out", async () => {
 
 test("the key test reports problems instead of throwing", async () => {
   assert.equal(await judge([ok("OK")]).j.test(), null);
-  assert.match((await judge([error(400, { code: 400, message: "API key not valid." })]).j.test())!, /ongeldig/);
+  const invalid = (await judge([error(400, { code: 400, message: "API key not valid.", details: [{ reason: "API_KEY_INVALID" }] })]).j.test())!;
+  assert.match(invalid, /kent deze sleutel niet/);
+  assert.match(invalid, /Google: "API key not valid\.", API_KEY_INVALID/, "Google's own words are shown");
+  const disabled = (await judge([error(403, { code: 403, status: "PERMISSION_DENIED", message: "Generative Language API has not been used in project 123 before or it is disabled.", details: [{ reason: "SERVICE_DISABLED" }] })]).j.test())!;
+  assert.match(disabled, /Generative Language API/);
+  const blocked = (await judge([error(403, { code: 403, message: "Requests to this API generativelanguage.googleapis.com method ... are blocked.", details: [{ reason: "API_KEY_SERVICE_BLOCKED" }] })]).j.test())!;
+  assert.match(blocked, /Maps-sleutel/);
 });
 
 test("retry delay parsing", () => {
