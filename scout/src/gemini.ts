@@ -1,7 +1,7 @@
 import type { Judge } from "./pipeline.ts";
 import { LOCATION_TYPES } from "./presets.ts";
 import type { SearchMode } from "./types.ts";
-import { type AssessmentResult, parseAssessment, type ReferenceAnalysis, SYSTEM_PROMPT, type ViewImage } from "./vision.ts";
+import { type AssessmentResult, MEETS_BRIEF_DESCRIPTION, parseAssessment, type ReferenceAnalysis, SYSTEM_PROMPT, type ViewImage } from "./vision.ts";
 import { z } from "zod";
 
 // Assessments with Google Gemini on its free tier, over the REST API
@@ -23,6 +23,7 @@ const RESPONSE_SCHEMA = {
   type: "OBJECT",
   properties: {
     usable: { type: "BOOLEAN", description: "false if the images are indoor, black, blurred or show nothing assessable" },
+    meets_brief: { type: "BOOLEAN", description: MEETS_BRIEF_DESCRIPTION },
     score: { type: "INTEGER", description: "0-100 overall fit with the brief" },
     type_match: { type: "STRING", description: "id of the best matching requested location type, or 'geen'" },
     color_score: { type: "INTEGER", nullable: true, description: "0-100 fit with the requested colour setting, null if none was requested" },
@@ -42,6 +43,7 @@ const RESPONSE_SCHEMA = {
   },
   required: [
     "usable",
+    "meets_brief",
     "score",
     "type_match",
     "color_score",
@@ -103,7 +105,7 @@ Leave location_guesses empty.
 Answer with one JSON object with the keys description, location_types, colors, places_queries, location_guesses.`;
 }
 
-const JSON_INSTRUCTION = `Answer with one JSON object only, with these keys: usable (boolean), score (integer 0-100), type_match (string), color_score (integer 0-100 or null), palette (array of {hex, name}), best_view_index (integer), summary (string), strengths (array of strings), concerns (array of strings), tags (array of strings), access ("publiek", "privé" or "onduidelijk"), access_notes (string), similarity (integer 0-100 or null).`;
+const JSON_INSTRUCTION = `Answer with one JSON object only, with these keys: usable (boolean), meets_brief (boolean), score (integer 0-100), type_match (string), color_score (integer 0-100 or null), palette (array of {hex, name}), best_view_index (integer), summary (string), strengths (array of strings), concerns (array of strings), tags (array of strings), access ("publiek", "privé" or "onduidelijk"), access_notes (string), similarity (integer 0-100 or null).`;
 
 export class GeminiError extends Error {
   readonly status: number;

@@ -16,6 +16,8 @@ export interface ViewImage {
 
 export interface Assessment {
   usable: boolean;
+  /** false when the spot goes against any wish of the photographer; such spots are never shown. */
+  meetsBrief: boolean;
   score: number;
   typeMatch: string;
   colorScore: number | null;
@@ -38,11 +40,15 @@ export interface AssessmentResult {
   outputTokens: number;
 }
 
+export const MEETS_BRIEF_DESCRIPTION =
+  "false if the spot goes against any wish in the brief (e.g. a busy road or petrol station when quiet places were asked for, the wrong kind of place, clearly the wrong colours) or simply does not match it; true only if a photographer with this brief would want to go there";
+
 const OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [
     "usable",
+    "meets_brief",
     "score",
     "type_match",
     "color_score",
@@ -58,6 +64,7 @@ const OUTPUT_SCHEMA = {
   ],
   properties: {
     usable: { type: "boolean", description: "false if the images are indoor, black, blurred, or show nothing assessable" },
+    meets_brief: { type: "boolean", description: MEETS_BRIEF_DESCRIPTION },
     score: { type: "integer", description: "0-100 overall fit with the brief" },
     type_match: { type: "string", description: "id of the best matching requested location type, or 'geen'" },
     color_score: { type: ["integer", "null"], description: "0-100 fit with the requested colour setting, null if none was requested" },
@@ -84,6 +91,7 @@ const OUTPUT_SCHEMA = {
 
 const AnswerSchema = z.object({
   usable: z.boolean(),
+  meets_brief: z.boolean(),
   score: z.number(),
   type_match: z.string(),
   color_score: z.number().nullable(),
@@ -106,6 +114,7 @@ How to score (0-100):
 - 65-84: good match with some compromises (clutter, partial match, ordinary light).
 - 40-64: weak or partial match; only worth it if nothing better exists.
 - 0-39: does not match the brief.
+meets_brief is a strict yes/no gate: set it to false whenever the spot conflicts with any wish in the brief or does not match the requested kind of place, even if parts of it look nice. A spot with meets_brief false is never shown to the photographer, so when in doubt about a clear conflict, say false. Give such a spot a score below 40.
 Judge the spot itself, not the quality of the Street View photo: overcast weather, a low camera position or a car in the frame are temporary. Do penalise permanent problems: heavy traffic roads, fences in front of the subject, construction, clutter that would be in every shot.
 For the colour setting, judge the colours of the place itself (buildings, surfaces, vegetation), not the sky or the weather on the day of capture.
 For access, say whether a crew could likely shoot there without asking: "publiek" for streets, squares, public parks and paths; "privé" for yards, company grounds, farmyards, fenced or gated sites and anything signed private; "onduidelijk" when you cannot tell. Base it on what you see.
@@ -222,6 +231,7 @@ export function parseAssessment(text: string, viewCount: number): Assessment | n
   const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
   return {
     usable: parsed.usable,
+    meetsBrief: parsed.meets_brief,
     score: clamp(parsed.score),
     typeMatch: parsed.type_match,
     colorScore: parsed.color_score === null ? null : clamp(parsed.color_score),

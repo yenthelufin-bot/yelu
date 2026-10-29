@@ -162,4 +162,6 @@ export interface SavedSearch {
   cost: SearchCost;
   /** What the reference photos showed, when there were any. */
   analysis?: ReferenceAnalysis;
+  /** Why fewer locations were found than asked for. */
+  shortfall?: string;
 }

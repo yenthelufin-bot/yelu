@@ -203,7 +203,7 @@ const refreshEstimate = debounce(async () => {
     const { usage, free } = await api("/api/estimate", { method: "POST", body: JSON.stringify(req) });
     const images = free.items.find((i) => i.sku === "streetViewImage");
     const left = Math.max(0, images.limit - images.used);
-    el.textContent = `Gratis: hooguit ${usage.streetViewImages} Street View-beelden (nog ${left.toLocaleString("nl-BE")} van ${images.limit.toLocaleString("nl-BE")} deze maand) en ${req.maxCandidates} beoordelingen door Gemini.`;
+    el.textContent = `Gratis: hooguit ${usage.streetViewImages} Street View-beelden (nog ${left.toLocaleString("nl-BE")} van ${images.limit.toLocaleString("nl-BE")} deze maand) en hooguit ${usage.assessments} beoordelingen door Gemini, om ${req.maxCandidates} passende locaties te vinden.`;
     el.classList.toggle("usage-low", left < usage.streetViewImages);
   } catch {
     el.textContent = "Gratis Google-gebruik: —";
@@ -418,16 +418,25 @@ function handleEvent(ev) {
     case "status":
       $("#run-status").textContent = ev.message;
       break;
+    case "located":
+      if (state.search) {
+        state.search.center = ev.center;
+        state.search.resolvedPlace = ev.place;
+        renderResults();
+      }
+      break;
     case "candidates":
       $("#run-status").textContent = `${ev.total} kandidaten gevonden (${ev.bySource.places} Google Places, ${ev.bySource.osm} OpenStreetMap, ${ev.bySource.grid} steekproef).`;
       break;
     case "progress":
-      $("#progress-bar").style.width = `${ev.total ? (100 * ev.analysed) / ev.total : 0}%`;
+      $("#progress-bar").style.width = `${ev.wanted ? Math.min(100, (100 * ev.found) / ev.wanted) : 0}%`;
       if (state.search) {
         state.search.cost = ev.cost;
         state.search.analysed = ev.analysed;
       }
-      $("#run-meta").textContent = `${ev.analysed} van ${ev.total} plekken bekeken · ${ev.cost.streetViewImages} Street View-beelden${paidCost(ev.cost)}`;
+      $("#run-meta").textContent = ev.wanted
+        ? `${ev.found} van ${ev.wanted} locaties gevonden · ${ev.cost.streetViewImages} Street View-beelden${paidCost(ev.cost)}`
+        : `${ev.analysed} plekken vergeleken · ${ev.cost.streetViewImages} Street View-beelden${paidCost(ev.cost)}`;
       break;
     case "result":
       if (state.search) {
@@ -470,8 +479,8 @@ function renderRun() {
   } else if (s.status !== "running") {
     $("#progress-bar").style.width = "100%";
     const labels = { done: "Klaar.", cancelled: "Gestopt.", error: `Fout: ${s.error}` };
-    $("#run-status").textContent = labels[s.status] ?? "";
-    $("#run-meta").textContent = `${s.analysed} plekken bekeken van ${s.candidatesFound} kandidaten · ${s.cost.streetViewImages} Street View-beelden${paidCost(s.cost)}`;
+    $("#run-status").textContent = s.status === "done" && s.shortfall ? `Klaar. ${s.shortfall}` : (labels[s.status] ?? "");
+    $("#run-meta").textContent = `${s.results.length} ${s.results.length === 1 ? "locatie" : "locaties"} die aan je wensen voldoen · ${s.cost.streetViewImages} Street View-beelden${paidCost(s.cost)}`;
   }
   for (const fmt of ["kml", "gpx", "csv"]) {
     const params = new URLSearchParams({ minScore: $("#filter-score").value });
@@ -614,8 +623,10 @@ function renderCard(r, flash) {
 
   $(".name", card).textContent = r.name;
   const typeLabel = state.config.locationTypes.find((t) => t.id === r.typeMatch)?.label ?? r.typeMatch;
-  const km = distanceKm(state.search.center, r.location).toFixed(1);
-  $(".meta", card).textContent = [typeLabel, `${km} km van centrum`, r.panoDate && `beeld ${r.panoDate}`, r.colorScore !== null && `kleur ${r.colorScore}/100`]
+  // Until the place is looked up the centre is still 0,0; no distance then.
+  const c = state.search.center;
+  const km = c && (c.lat || c.lng) ? `${distanceKm(c, r.location).toFixed(1)} km van centrum` : null;
+  $(".meta", card).textContent = [typeLabel, km, r.panoDate && `beeld ${r.panoDate}`, r.colorScore !== null && `kleur ${r.colorScore}/100`]
     .filter(Boolean)
     .join(" · ");
   const palette = $(".palette", card);

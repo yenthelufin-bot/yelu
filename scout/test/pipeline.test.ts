@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { destination } from "../src/geo.ts";
 import { GoogleApiError } from "../src/google.ts";
-import { estimateUsage, headingsFor, interleave, isFatal, runSearch, type SearchEvent } from "../src/pipeline.ts";
+import { assessLimit, estimateUsage, headingsFor, interleave, isFatal, runSearch, type SearchEvent } from "../src/pipeline.ts";
 import { fakeDeps, GENT, request, verdict } from "./helpers.ts";
 
 const run = async (deps: Parameters<typeof runSearch>[1], req = request(), signal = new AbortController().signal) => {
@@ -11,13 +11,16 @@ const run = async (deps: Parameters<typeof runSearch>[1], req = request(), signa
   return { search, events };
 };
 
-test("a search analyses up to maxCandidates spots and ranks them", async () => {
+test("a search keeps looking until it has the number of matching spots asked for", async () => {
+  // Every third spot scores 55, below the minimum of 60: those don't count and aren't shown.
   const { deps, calls } = fakeDeps({ scores: [55, 90, 70] });
-  const { search, events } = await run(deps, request({ maxCandidates: 6 }));
+  const { search, events } = await run(deps, request({ maxCandidates: 6, minScore: 60 }));
   assert.equal(search.status, "done", search.error ?? "");
-  assert.equal(search.analysed, 6);
-  assert.equal(calls.assess, 6);
   assert.equal(search.results.length, 6);
+  assert.ok(search.results.every((r) => r.score >= 60));
+  assert.ok(calls.assess > 6, "looked further than 6 spots to find 6 good ones");
+  assert.equal(search.analysed, calls.assess);
+  assert.equal(search.shortfall, undefined);
   assert.deepEqual(
     search.results.map((r) => r.score),
     [...search.results.map((r) => r.score)].sort((a, b) => b - a),
@@ -27,8 +30,8 @@ test("a search analyses up to maxCandidates spots and ranks them", async () => {
   assert.ok(search.cost.estimatedUsd > 0, "Claude API tokens are priced");
   assert.equal(events.at(-1)?.type, "done");
   // All three sources contribute candidates.
-  const sources = new Set(search.results.map((r) => r.source));
-  assert.deepEqual([...sources].sort(), ["grid", "osm", "places"]);
+  const found = events.find((e) => e.type === "candidates");
+  assert.ok(found?.type === "candidates" && found.bySource.places > 0 && found.bySource.osm > 0 && found.bySource.grid > 0);
 });
 
 test("named spots are photographed towards the spot, sampled points all around", () => {
@@ -49,9 +52,31 @@ test("unusable views and refusals are skipped, not ranked", async () => {
     return verdict(75);
   };
   const { search, events } = await run(deps, request({ maxCandidates: 5 }));
-  assert.equal(search.results.length, 3);
+  assert.equal(search.results.length, 5);
+  // Only a technical problem is reported; an unusable view is just passed over.
   const skipped = events.filter((e) => e.type === "skipped");
-  assert.equal(skipped.length, 2);
+  assert.equal(skipped.length, 1);
+});
+
+test("a spot that goes against the wishes is never shown, however high its score", async () => {
+  const { deps } = fakeDeps();
+  let n = 0;
+  deps.judge.assess = async () => (++n % 2 ? verdict(88, { meetsBrief: false, summary: "Tankstation langs de snelweg." }) : verdict(75));
+  const { search, events } = await run(deps, request({ maxCandidates: 5 }));
+  assert.equal(search.results.length, 5);
+  assert.ok(search.results.every((r) => r.score === 75));
+  assert.ok(!events.some((e) => e.type === "result" && e.result.summary.includes("Tankstation")));
+});
+
+test("when the zone has too few matching spots, the search says so instead of padding the list", async () => {
+  const { deps, calls } = fakeDeps();
+  let n = 0;
+  deps.judge.assess = async () => (++n <= 2 ? verdict(80) : verdict(20, { meetsBrief: false }));
+  const { search } = await run(deps, request({ maxCandidates: 5 }));
+  assert.equal(search.status, "done");
+  assert.equal(search.results.length, 2);
+  assert.match(search.shortfall ?? "", /Meer plekken die aan je wensen voldoen/);
+  assert.ok(calls.assess <= assessLimit(request({ maxCandidates: 5 })));
 });
 
 test("old panoramas are filtered out by minPanoYear", async () => {
@@ -116,8 +141,9 @@ test("helpers", () => {
   assert.ok(isFatal(new GoogleApiError("Geocoding", "REQUEST_DENIED")));
   assert.ok(!isFatal(new Error("Street View: 500")));
   assert.deepEqual(estimateUsage(request({ maxCandidates: 40, locationTypes: ["industrieel", "water"] })), {
-    streetViewImages: 160,
+    streetViewImages: 640,
     placesRequests: 6,
+    assessments: 160,
   });
 });
 

@@ -13,6 +13,7 @@ export function verdict(score: number, overrides: Partial<NonNullable<Assessment
   return {
     assessment: {
       usable: true,
+      meetsBrief: true,
       score,
       typeMatch: "industrieel",
       colorScore: null,

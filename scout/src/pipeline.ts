@@ -19,11 +19,29 @@ const QUERIES_PER_TYPE = 3;
 const OSM_LIMIT = 400;
 const METADATA_CALLS_PER_CANDIDATE = 4;
 const CONCURRENCY = 3;
+/**
+ * Not every spot fits the brief, so a search for N locations may look at up
+ * to this many times N spots before it gives up on the zone.
+ */
+const SPOTS_PER_WANTED = 4;
+const MAX_SPOTS_TO_ASSESS = 160;
+
+/** How many locations the photographer wants to see. */
+export function wanted(req: SearchRequest): number {
+  return req.maxCandidates;
+}
+
+/** How many spots a search may look at to find them; exact mode looks for one place, so it checks the given number. */
+export function assessLimit(req: SearchRequest): number {
+  return req.mode === "exact" ? req.maxCandidates : Math.min(MAX_SPOTS_TO_ASSESS, Math.max(req.maxCandidates + 10, req.maxCandidates * SPOTS_PER_WANTED));
+}
 
 export type SearchEvent =
   | { type: "status"; message: string }
+  /** The search zone is known: from here on, distances are measured from this centre. */
+  | { type: "located"; center: LatLng; place: string }
   | { type: "candidates"; total: number; bySource: Record<CandidateSource, number> }
-  | { type: "progress"; analysed: number; total: number; cost: SearchCost }
+  | { type: "progress"; analysed: number; found: number; wanted: number; cost: SearchCost }
   | { type: "result"; result: ScoredLocation }
   | { type: "skipped"; name: string; reason: string }
   | { type: "done"; search: SavedSearch };
@@ -68,9 +86,9 @@ function priceCost(cost: SearchCost): SearchCost {
 }
 
 /** The most a search can use of the free Google amounts. */
-export function estimateUsage(req: SearchRequest): { streetViewImages: number; placesRequests: number } {
+export function estimateUsage(req: SearchRequest): { streetViewImages: number; placesRequests: number; assessments: number } {
   const placesRequests = req.sources.places ? req.locationTypes.length * QUERIES_PER_TYPE + (req.description ? 1 : 0) : 0;
-  return { streetViewImages: req.maxCandidates * 4, placesRequests };
+  return { streetViewImages: assessLimit(req) * 4, placesRequests, assessments: assessLimit(req) };
 }
 
 /** Takes items from each list in turn, so no single source dominates the budget. */
@@ -115,10 +133,16 @@ export function isFatal(err: unknown): boolean {
   return /REQUEST_DENIED|API key|: 40[13]\b|credit balance/i.test(message);
 }
 
-async function mapLimit<T>(items: T[], limit: number, signal: AbortSignal, fn: (item: T) => Promise<void>): Promise<void> {
+async function mapLimit<T>(
+  items: T[],
+  limit: number,
+  signal: AbortSignal,
+  fn: (item: T) => Promise<void>,
+  enough: () => boolean = () => false,
+): Promise<void> {
   let next = 0;
   const worker = async () => {
-    while (next < items.length && !signal.aborted) await fn(items[next++]);
+    while (next < items.length && !signal.aborted && !enough()) await fn(items[next++]);
   };
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
@@ -141,6 +165,8 @@ export async function findSpots(
   signal: AbortSignal,
   cost: SearchCost,
   onGeocoded?: (geo: GeocodeResult) => void,
+  /** How many spots with Street View to return at most. */
+  maxSpots: number = req.maxCandidates,
 ): Promise<SpotsFound> {
   const radiusM = req.radiusKm * 1000;
   let geo: GeocodeResult;
@@ -202,7 +228,7 @@ export async function findSpots(
   }
 
   const fromGrid: Candidate[] = req.sources.grid
-    ? spreadPoints(geo.location, radiusM, req.maxCandidates * 2).map((location, i) => ({
+    ? spreadPoints(geo.location, radiusM, maxSpots * 2).map((location, i) => ({
         location,
         source: "grid" as const,
         name: `Steekproefpunt ${i + 1}`,
@@ -229,9 +255,9 @@ export async function findSpots(
   const seenPanos = new Set<string>();
   let fatalError: unknown = null;
   const halt = new AbortController();
-  const toCheck = candidates.slice(0, req.maxCandidates * METADATA_CALLS_PER_CANDIDATE);
+  const toCheck = candidates.slice(0, maxSpots * METADATA_CALLS_PER_CANDIDATE);
   await mapLimit(toCheck, 8, AbortSignal.any([signal, halt.signal]), async (c) => {
-    if (spots.length >= req.maxCandidates) return;
+    if (spots.length >= maxSpots) return;
     const meta = await deps.maps.streetViewMeta(c.location, c.source === "grid" ? 150 : 80).catch((err) => {
       if (isFatal(err)) {
         fatalError ??= err;
@@ -243,7 +269,7 @@ export async function findSpots(
     const year = meta.date ? Number(meta.date.slice(0, 4)) : null;
     if (req.minPanoYear && year !== null && year < req.minPanoYear) return;
     seenPanos.add(meta.panoId);
-    if (spots.length < req.maxCandidates) {
+    if (spots.length < maxSpots) {
       spots.push({ ...c, panoId: meta.panoId, panoLocation: meta.location, panoDate: meta.date, headings: headingsFor(c, meta.location) });
     }
   });
@@ -362,18 +388,33 @@ export async function runSearch(
       }
     }
 
-    const found = await findSpots(req, deps, emit, signal, cost, (geo) => {
-      search.center = geo.location;
-      search.resolvedPlace = geo.formattedAddress;
-      update();
-    });
+    const found = await findSpots(
+      req,
+      deps,
+      emit,
+      signal,
+      cost,
+      (geo) => {
+        search.center = geo.location;
+        search.resolvedPlace = geo.formattedAddress;
+        update();
+        emit({ type: "located", center: geo.location, place: geo.formattedAddress });
+      },
+      assessLimit(req),
+    );
     const panos = found.spots;
     search.candidatesFound = found.candidatesFound;
     update();
 
     const brief = buildBrief(req);
-    emit({ type: "status", message: `${panos.length} plekken bekijken in Street View en laten beoordelen…` });
-    emit({ type: "progress", analysed: 0, total: panos.length, cost: search.cost });
+    const want = req.mode === "exact" ? Infinity : wanted(req);
+    const progress = () =>
+      emit({ type: "progress", analysed: search.analysed, found: search.results.length, wanted: req.mode === "exact" ? 0 : want, cost: search.cost });
+    emit({
+      type: "status",
+      message: req.mode === "exact" ? `${panos.length} plekken vergelijken met je foto…` : `Op zoek naar ${want} locaties die aan je wensen voldoen…`,
+    });
+    progress();
 
     await mapLimit(panos, CONCURRENCY, signal, async (pano) => {
       try {
@@ -389,8 +430,8 @@ export async function runSearch(
         const a = verdict.assessment;
         if (!a) {
           emit({ type: "skipped", name: pano.name, reason: verdict.skippedReason ?? "onbekend" });
-        } else if (!a.usable) {
-          emit({ type: "skipped", name: pano.name, reason: "geen bruikbaar Street View-beeld" });
+        } else if (!a.usable || !a.meetsBrief || a.score < req.minScore) {
+          // Not what the photographer asked for: never shown, and the search looks further.
         } else {
           const result = toResult(pano, a, views.map((v) => v.heading));
           deps.onImages?.(id, result.id, views);
@@ -408,10 +449,18 @@ export async function runSearch(
       }
       search.analysed++;
       update();
-      emit({ type: "progress", analysed: search.analysed, total: panos.length, cost: search.cost });
-    });
+      progress();
+    }, () => search.results.length >= want);
 
     if (fatalError) throw fatalError;
+    // Spots assessed in parallel can overshoot by a few; keep exactly the best ones asked for.
+    if (search.results.length > want) search.results = search.results.slice(0, want);
+    if (req.mode !== "exact" && !outerSignal.aborted && search.results.length < want) {
+      search.shortfall =
+        search.results.length === 0
+          ? `Geen enkele plek in deze zone voldoet aan je wensen (${search.analysed} bekeken). Vergroot de straal of maak je wensen wat ruimer.`
+          : `Meer plekken die aan je wensen voldoen, zijn er in deze zone niet te vinden (${search.analysed} bekeken). Vergroot de straal voor meer.`;
+    }
     search.status = outerSignal.aborted ? "cancelled" : "done";
   } catch (err) {
     search.status = outerSignal.aborted ? "cancelled" : "error";

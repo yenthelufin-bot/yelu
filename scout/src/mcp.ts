@@ -199,6 +199,7 @@ export function createScoutTools(ctx: ScoutContext) {
             spot,
             {
               usable: true,
+              meetsBrief: true,
               score: Math.round(a.score),
               typeMatch: a.type_match,
               colorScore: a.color_score === null ? null : Math.round(a.color_score),

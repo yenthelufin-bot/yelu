@@ -5,6 +5,7 @@ import { isFatal } from "../src/pipeline.ts";
 
 const answer = {
   usable: true,
+  meets_brief: true,
   score: 81,
   type_match: "industrieel",
   color_score: null,

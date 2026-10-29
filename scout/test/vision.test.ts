@@ -25,6 +25,7 @@ function fakeClient(response: object) {
 
 const answer = {
   usable: true,
+  meets_brief: true,
   score: 104,
   type_match: "industrieel",
   color_score: 72,
