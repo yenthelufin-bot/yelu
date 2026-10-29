@@ -28,7 +28,7 @@ export function toGpx(name: string, results: ScoredLocation[]): string {
         `  <wpt lat="${r.panoLocation.lat}" lon="${r.panoLocation.lng}">\n    <name>${xml(`${r.score} · ${r.name}`)}</name>\n    <desc>${xml(description(r))}</desc>\n  </wpt>`,
     )
     .join("\n");
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Location Scout" xmlns="http://www.topografix.com/GPX/1/1">\n  <metadata><name>${xml(name)}</name></metadata>\n${points}\n</gpx>\n`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Frame Finder" xmlns="http://www.topografix.com/GPX/1/1">\n  <metadata><name>${xml(name)}</name></metadata>\n${points}\n</gpx>\n`;
 }
 
 /** KML imports straight into Google My Maps and Google Earth. */

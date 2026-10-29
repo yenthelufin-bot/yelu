@@ -3,16 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Location Scout</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='13' r='9' fill='%23e07a2f'/%3E%3Cpath d='M16 31 9 18h14z' fill='%23e07a2f'/%3E%3Ccircle cx='16' cy='13' r='4' fill='white'/%3E%3C/svg%3E">
+  <title>Frame Finder</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=MuseoModerno:wght@600;700&family=Inter:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="13" r="9"/><path d="M16 31 9 18h14z"/><circle cx="16" cy="13" r="4" class="hole"/></svg>
-      <span>Location Scout</span>
+    <div class="brand" role="img" aria-label="Frame Finder">
+      <span>FRAME</span><i class="pill" aria-hidden="true"><b></b></i><span>FINDER</span>
     </div>
     <nav class="tabs" role="tablist">
       <button role="tab" data-view="search" aria-selected="true">Nieuwe zoektocht</button>
@@ -181,8 +182,8 @@
         <summary>Hoe maak ik een sleutel aan? (± 10 minuten)</summary>
         <ol class="howto">
           <li>Ga naar <a href="https://console.cloud.google.com" target="_blank" rel="noopener">console.cloud.google.com</a> en log in met je Google-account.</li>
-          <li>Klik bovenaan op de projectkiezer → <strong>Nieuw project</strong>, noem het <em>Location Scout</em> en kies het daarna.</li>
-          <li>Menu ☰ → <strong>Facturering</strong>: koppel een factureringsaccount. Google vraagt een bankkaart, maar Location Scout blijft onder het gratis gebruik.</li>
+          <li>Klik bovenaan op de projectkiezer → <strong>Nieuw project</strong>, noem het <em>Frame Finder</em> en kies het daarna.</li>
+          <li>Menu ☰ → <strong>Facturering</strong>: koppel een factureringsaccount. Google vraagt een bankkaart, maar Frame Finder blijft onder het gratis gebruik.</li>
           <li>Menu ☰ → <strong>API's en services → Bibliotheek</strong>: zoek en schakel deze vier in:
             <ul class="api-list">
               <li><a href="https://console.cloud.google.com/apis/library/geocoding-backend.googleapis.com" target="_blank" rel="noopener">Geocoding API</a></li>
@@ -221,7 +222,7 @@
           <li><strong>Belangrijk:</strong> kies daarbij een <strong>nieuw project</strong>, niet het project van stap 1. Koppel aan dat nieuwe project géén facturatie: zonder facturatie blijft Gemini op de gratis versie en kan het je nooit iets kosten.</li>
           <li>Kopieer de sleutel en plak hem hieronder.</li>
         </ol>
-        <p class="hint">De gratis versie heeft een limiet per minuut en per dag. Location Scout wacht vanzelf als Google dat vraagt en stopt netjes bij de daglimiet. In AI Studio zie je bij <em>Usage</em> je actuele limieten.</p>
+        <p class="hint">De gratis versie heeft een limiet per minuut en per dag. Frame Finder wacht vanzelf als Google dat vraagt en stopt netjes bij de daglimiet. In AI Studio zie je bij <em>Usage</em> je actuele limieten.</p>
       </details>
       <form id="gemini-form" class="key-form" autocomplete="off">
         <label class="field">
@@ -242,7 +243,7 @@
         <span class="step-num">€0</span>
         <div>
           <h2>Gratis gebruik deze maand</h2>
-          <p class="step-status">Location Scout stopt vóór de gratis grens van Google, dus je betaalt niets.</p>
+          <p class="step-status">Frame Finder stopt vóór de gratis grens van Google, dus je betaalt niets.</p>
         </div>
       </div>
       <div id="usage-bars" class="usage-bars"></div>

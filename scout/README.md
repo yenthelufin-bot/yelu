@@ -1,6 +1,8 @@
-# Location Scout
+# Frame Finder
 
 Vindt fotoshootlocaties voor je, zodat je niet uren door Google Maps en Street View hoeft te scrollen. **Gratis te gebruiken.**
+
+*(Voorheen Location Scout. De startbestanden heten nog zo.)*
 
 Je geeft een gemeente of stad op, met een straal in km. Je kiest het soort plek, de kleursetting en eventueel extra wensen. Location Scout zoekt dan kandidaat-plekken, bekijkt elke plek in Street View en laat de foto's beoordelen door Google Gemini. Alles gebeurt in je browser. Je krijgt een gerangschikte lijst terug met:
 

@@ -4,11 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Locatieselectie</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='13' r='9' fill='%23e07a2f'/%3E%3Cpath d='M16 31 9 18h14z' fill='%23e07a2f'/%3E%3Ccircle cx='16' cy='13' r='4' fill='white'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=MuseoModerno:wght@600;700&family=Inter:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <link rel="stylesheet" href="/style.css">
   <style>
     .share-page { max-width: 1100px; margin: 0 auto; padding: 1.25rem; display: grid; gap: 1rem; }
+    .share-head .brand { margin-bottom: 1rem; }
     .share-head h1 { margin: 0 0 0.3rem; font-size: 1.5rem; }
     .share-head p { margin: 0; color: var(--muted); white-space: pre-line; }
     .who { display: flex; gap: 0.6rem; align-items: flex-end; flex-wrap: wrap; }
@@ -24,6 +27,7 @@
 <body>
   <main class="share-page">
     <header class="panel share-head">
+      <div class="brand" role="img" aria-label="Frame Finder"><span>FRAME</span><i class="pill" aria-hidden="true"><b></b></i><span>FINDER</span></div>
       <h1 id="title">Locatieselectie</h1>
       <p id="message"></p>
     </header>

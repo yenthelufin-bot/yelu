@@ -4,23 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Locatieboek</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=MuseoModerno:wght@600;700&family=Inter:wght@400;600;700;800&display=swap">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
   <style>
-    :root { --text: #1f1d1a; --muted: #6b665e; --line: #ddd6cb; --accent: #d1631c; --good: #2f7d4f; --bad: #a33a2b; --mid: #b7791f; }
+    :root { --text: #1f1d1a; --muted: #6b665e; --line: #ddd6cb; --accent: #f0532f; --accent-grad: linear-gradient(90deg, #ff3131, #ff914d); --ink: #111214; --logo-font: "MuseoModerno", "Inter", sans-serif; --good: #2f7d4f; --bad: #a33a2b; --mid: #b7791f; }
     * { box-sizing: border-box; }
-    body { margin: 0; background: #e9e5df; color: var(--text); font: 11pt/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    body { margin: 0; background: #e9e5df; color: var(--text); font: 11pt/1.45 "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
     .toolbar { position: sticky; top: 0; z-index: 1000; display: flex; gap: 1rem; align-items: center; justify-content: center; flex-wrap: wrap; padding: 0.75rem 1rem; background: #fff; border-bottom: 1px solid var(--line); }
-    .toolbar button { font: inherit; font-weight: 700; background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 0.6rem 1.1rem; cursor: pointer; }
+    .toolbar button { font: inherit; font-weight: 700; background: var(--accent-grad); color: #1a0d06; border: 0; border-radius: 999px; padding: 0.6rem 1.1rem; cursor: pointer; }
     .toolbar span { color: var(--muted); font-size: 0.9rem; }
     .page { width: 210mm; min-height: 297mm; margin: 1rem auto; padding: 12mm; background: #fff; box-shadow: 0 2px 12px rgb(0 0 0 / 0.12); page-break-after: always; break-after: page; overflow: hidden; }
     .page:last-child { page-break-after: auto; break-after: auto; }
     h1 { font-size: 22pt; margin: 0 0 4mm; }
     h2 { font-size: 16pt; margin: 0; }
+    .brand { display: flex; align-items: center; gap: 2.5mm; font: 700 13pt/1 var(--logo-font); letter-spacing: 0.02em; color: var(--ink); margin-bottom: 10mm; }
+    .brand .pill { display: block; width: 2.4em; border: 0.13em solid currentColor; border-radius: 999px; padding: 0.1em; }
+    .brand .pill b { display: block; height: 0.36em; border-radius: 999px; background: var(--accent-grad); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .muted { color: var(--muted); }
     .cover-map { height: 120mm; border: 1px solid var(--line); border-radius: 3mm; margin: 6mm 0; }
     .index { columns: 2; column-gap: 8mm; padding-left: 5mm; margin: 0; }
     .index li { break-inside: avoid; margin-bottom: 1.5mm; }
-    .loc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 4mm; border-bottom: 2px solid var(--accent); padding-bottom: 2mm; margin-bottom: 4mm; }
+    .loc-head { display: flex; justify-content: space-between; align-items: baseline; gap: 4mm; border-bottom: 2px solid var(--ink); padding-bottom: 2mm; margin-bottom: 4mm; }
     .score { font-weight: 800; font-size: 14pt; color: var(--accent); white-space: nowrap; }
     .hero { width: 100%; height: 88mm; object-fit: cover; border-radius: 2mm; display: block; background: #eee; }
     .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2mm; margin-top: 2mm; }

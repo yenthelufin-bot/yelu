@@ -1,4 +1,4 @@
-// Location Scout frontend. Plain ES module, no build step.
+// Frame Finder frontend. Plain ES module, no build step.
 import { prepareJpeg, readGps } from "./photos.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -31,7 +31,7 @@ const MODE_TEXT = {
 };
 
 const OFFLINE_MESSAGE =
-  "Location Scout op je computer reageert niet. Staat het zwarte venster nog open? Zo niet: dubbelklik opnieuw op het startbestand en gebruik het tabblad dat dan opent.";
+  "Frame Finder op je computer reageert niet. Staat het zwarte venster nog open? Zo niet: dubbelklik opnieuw op het startbestand en gebruik het tabblad dat dan opent.";
 
 async function api(path, options = {}) {
   let res;
@@ -861,8 +861,8 @@ function renderShareList() {
   tunnelBox.className = "share-link";
   const status = document.createElement("span");
   status.textContent = tunnelUrl
-    ? `Internetlink staat aan: ${tunnelUrl}. Hij werkt zolang Location Scout op deze computer draait.`
-    : "Om iemand anders je selectie te laten zien, zet je een internetlink aan (gratis, via Cloudflare). Die werkt zolang Location Scout op je computer draait.";
+    ? `Internetlink staat aan: ${tunnelUrl}. Hij werkt zolang Frame Finder op deze computer draait.`
+    : "Om iemand anders je selectie te laten zien, zet je een internetlink aan (gratis, via Cloudflare). Die werkt zolang Frame Finder op je computer draait.";
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = tunnelUrl ? "ghost small" : "primary";
@@ -883,7 +883,7 @@ async function toggleTunnel(button) {
       tunnelUrl = null;
     } else {
       const { installed } = await api("/api/tunnel");
-      if (!installed && !confirm("Hiervoor downloadt Location Scout eenmalig het gratis programma cloudflared van Cloudflare (± 40 MB). Doorgaan?")) {
+      if (!installed && !confirm("Hiervoor downloadt Frame Finder eenmalig het gratis programma cloudflared van Cloudflare (± 40 MB). Doorgaan?")) {
         button.disabled = false;
         return;
       }

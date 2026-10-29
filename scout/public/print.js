@@ -110,6 +110,7 @@ async function main() {
   const cover = el(
     "section",
     { class: "page" },
+    el("div", { class: "brand", role: "img", "aria-label": "Frame Finder" }, el("span", {}, "FRAME"), el("i", { class: "pill" }, el("b")), el("span", {}, "FINDER")),
     el("h1", {}, `Locatieboek ${place}`),
     el("p", { class: "muted" }, `${picked.length} locaties · zoekzone ${search.request.radiusKm} km · ${new Date().toLocaleDateString("nl-BE")}`),
     search.request.description ? el("p", {}, search.request.description) : null,

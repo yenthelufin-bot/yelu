@@ -1,6 +1,6 @@
 {
   "name": "location-scout",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "Vindt fotoshootlocaties via Google Maps en Street View, beoordeeld door Claude.",
   "type": "module",

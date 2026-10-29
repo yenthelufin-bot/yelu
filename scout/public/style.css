@@ -1,38 +1,22 @@
 :root {
-  --bg: #f4f1ec;
-  --panel: #ffffff;
-  --panel-2: #f8f6f2;
-  --text: #1f1d1a;
-  --muted: #6b665e;
-  --line: #e3ddd3;
-  --accent: #d1631c;
-  --accent-ink: #ffffff;
-  --accent-soft: #fbe8db;
-  --good: #2f7d4f;
-  --mid: #b7791f;
-  --bad: #a33a2b;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 16px rgb(0 0 0 / 0.05);
+  /* Frame Finder: dark and filmic, with the red-to-orange capsule as the accent */
+  --bg: #111214;
+  --panel: #1b1c1f;
+  --panel-2: #232529;
+  --text: #eeede9;
+  --muted: #a9a59d;
+  --line: #2f3137;
+  --accent: #ff6a3d;
+  --accent-ink: #1a0d06;
+  --accent-soft: #3a1f17;
+  --accent-grad: linear-gradient(90deg, #ff3131, #ff914d);
+  --good: #5cbf85;
+  --mid: #e0a84a;
+  --bad: #ff5a4a;
+  --shadow: none;
   --radius: 12px;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #151412;
-    --panel: #1e1c19;
-    --panel-2: #262420;
-    --text: #efebe4;
-    --muted: #a39d93;
-    --line: #34312c;
-    --accent: #ec8a45;
-    --accent-ink: #1a1007;
-    --accent-soft: #3a2616;
-    --good: #5cbf85;
-    --mid: #e0a84a;
-    --bad: #e2725f;
-    --shadow: none;
-    color-scheme: dark;
-  }
+  --logo-font: "MuseoModerno", "Inter", system-ui, sans-serif;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -41,7 +25,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.5 "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 h2 { font-size: 1rem; margin: 0 0 0.75rem; letter-spacing: 0.01em; }
@@ -59,9 +43,9 @@ h3 { font-size: 1rem; margin: 0; }
   top: 0;
   z-index: 1000;
 }
-.brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 1.05rem; }
-.brand svg { width: 26px; height: 26px; fill: var(--accent); }
-.brand svg .hole { fill: var(--panel); }
+.brand { display: flex; align-items: center; gap: 0.5rem; font: 700 1.25rem/1 var(--logo-font); letter-spacing: 0.02em; color: var(--text); }
+.brand .pill { display: block; width: 2.4em; border: 0.13em solid currentColor; border-radius: 999px; padding: 0.1em; }
+.brand .pill b { display: block; height: 0.36em; border-radius: 999px; background: var(--accent-grad); }
 .tabs { display: flex; gap: 0.25rem; }
 .tabs button {
   border: 0;
@@ -139,7 +123,7 @@ input[type="checkbox"] { accent-color: var(--accent); }
   cursor: pointer;
   user-select: none;
 }
-.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chip[aria-pressed="true"] { background: var(--accent-grad); border-color: transparent; color: var(--accent-ink); font-weight: 600; }
 .chip .sw { display: inline-flex; }
 .chip .sw i { width: 10px; height: 14px; display: block; }
 .chip .sw i:first-child { border-radius: 3px 0 0 3px; }
@@ -185,7 +169,8 @@ button.primary, button.ghost, a.ghost {
   gap: 0.3rem;
 }
 button.primary {
-  background: var(--accent);
+  background: var(--accent-grad);
+  border-radius: 999px;
   color: var(--accent-ink);
   border: 0;
   padding: 0.7rem 1.2rem;
@@ -208,8 +193,8 @@ button.ghost:hover, a.ghost:hover { border-color: var(--accent); }
 
 .run-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
 .run-head h2 { margin-bottom: 0.15rem; }
-.progress { height: 6px; background: var(--panel-2); border-radius: 999px; overflow: hidden; margin-top: 0.75rem; }
-#progress-bar { height: 100%; width: 0; background: var(--accent); transition: width 0.4s ease; }
+.progress { height: 14px; padding: 2px; border: 2px solid var(--text); border-radius: 999px; overflow: hidden; margin-top: 0.75rem; }
+#progress-bar { height: 100%; width: 0; background: var(--accent-grad); border-radius: 999px; transition: width 0.4s ease; }
 
 .toolbar {
   display: flex;

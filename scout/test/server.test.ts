@@ -38,7 +38,7 @@ async function readEvents(url: string): Promise<any[]> {
 
 test("serves the frontend and the config", async () => {
   const html = await fetch(`${base}/`).then((r) => r.text());
-  assert.match(html, /Location Scout/);
+  assert.match(html, /Frame Finder/);
   const config = await fetch(`${base}/api/config`).then((r) => r.json());
   assert.equal(config.ready, true);
   assert.ok(config.locationTypes.length >= 10);
