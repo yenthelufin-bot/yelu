@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { toCsv, toGpx, toKml } from "./export.ts";
@@ -18,6 +20,7 @@ import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS, GeminiJudge } from "./gemini.ts";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "..");
 const PUBLIC_DIR = path.join(ROOT, "public");
+export const VERSION: string = JSON.parse(await readFile(path.join(ROOT, "package.json"), "utf8")).version;
 
 interface Running {
   controller: AbortController;
@@ -167,7 +170,8 @@ export function createApp(options: AppOptions): http.Server {
       if (!file.startsWith(PUBLIC_DIR + path.sep)) throw new HttpError(404, "Niet gevonden");
       const body = await readFile(file).catch(() => null);
       if (!body) throw new HttpError(404, "Niet gevonden");
-      res.writeHead(200, { "Content-Type": MIME[path.extname(file)] ?? "application/octet-stream" });
+      // Always fetch fresh, so an update shows up without clearing the browser cache.
+      res.writeHead(200, { "Content-Type": MIME[path.extname(file)] ?? "application/octet-stream", "Cache-Control": "no-cache" });
       res.end(body);
       return;
     }
@@ -175,6 +179,7 @@ export function createApp(options: AppOptions): http.Server {
     // GET /api/config
     if (parts[1] === "config" && method === "GET") {
       sendJson(res, 200, {
+        version: VERSION,
         ready: Boolean(options.deps || (googleKey && engine() !== "claude-app")),
         engine: engine(),
         hasGoogleKey: Boolean(googleKey),
@@ -447,16 +452,59 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     geminiModel: process.env.GEMINI_MODEL || undefined,
     meter: new UsageMeter(dataDir, { enforced: process.env.SCOUT_FREE_LIMITS !== "off" }),
   });
-  app.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code !== "EADDRINUSE") throw err;
-    // Usually the Claude app already serves the page; the start file opens the browser anyway.
-    console.log(`Location Scout draait al op http://localhost:${port}`);
-    process.exit(0);
-  });
-  app.listen(port, host, () => {
-    console.log(`Location Scout draait op http://${host === "0.0.0.0" ? "localhost" : host}:${port}`);
-    if (!process.env.GOOGLE_MAPS_API_KEY || !process.env.GEMINI_API_KEY) {
-      console.log("Nog niet alles ingesteld: open de app in je browser en ga naar Instellingen.");
+  const openBrowser = process.argv.includes("--open");
+  start(app, port, host, openBrowser);
+}
+
+/** Opens a URL in the default browser; best effort. */
+function openInBrowser(url: string) {
+  const [cmd, args] =
+    process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", '""', url]] : ["xdg-open", [url]];
+  try {
+    spawn(cmd, args, { detached: true, stdio: "ignore", windowsHide: true }).on("error", () => {}).unref();
+  } catch {
+    // No browser to open; the address is printed anyway.
+  }
+}
+
+/** The version of Location Scout answering on a port; "?" for an older version or another program. */
+async function versionOn(port: number): Promise<string> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config`, { signal: AbortSignal.timeout(2_000) });
+    const body = (await res.json()) as { version?: string };
+    return body.version ?? "?";
+  } catch {
+    return "?";
+  }
+}
+
+/**
+ * Listens on the first free port from `port`. If this same version already
+ * runs, opens that instead. Another program or an older version (for
+ * example one started by the Claude app) never blocks the new one.
+ */
+function start(app: http.Server, firstPort: number, host: string, openBrowser: boolean) {
+  let port = firstPort;
+  app.on("error", async (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EADDRINUSE" || port >= firstPort + 10) throw err;
+    const running = await versionOn(port);
+    if (running === VERSION) {
+      console.log(`Location Scout draait al op http://localhost:${port}`);
+      if (openBrowser) openInBrowser(`http://localhost:${port}`);
+      process.exit(0);
     }
+    console.log(`Poort ${port} is bezet${running === "?" ? "" : ` door een oudere versie (${running})`}; ik probeer ${port + 1}.`);
+    port++;
+    app.listen(port, host);
   });
+  // One listener for whichever attempt succeeds.
+  app.once("listening", () => {
+    const url = `http://localhost:${(app.address() as AddressInfo).port}`;
+    console.log(`Location Scout ${VERSION} draait op ${url}`);
+    if (!process.env.GOOGLE_MAPS_API_KEY || !process.env.GEMINI_API_KEY) {
+      console.log("Nog niet alles ingesteld: de app opent op Instellingen.");
+    }
+    if (openBrowser) openInBrowser(url);
+  });
+  app.listen(port, host);
 }

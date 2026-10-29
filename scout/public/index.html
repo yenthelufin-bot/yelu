@@ -92,7 +92,6 @@
       <p id="estimate" class="hint">Gratis Google-gebruik: —</p>
       <div class="submit-row">
         <button type="submit" id="start" class="primary">Zoek locaties</button>
-        <button type="button" id="copy-prompt" class="ghost small" hidden>Kopieer als opdracht voor de Claude-app</button>
       </div>
       <p id="form-error" class="error" role="alert" hidden></p>
     </form>
@@ -217,19 +216,6 @@
       </form>
       <div id="gemini-result" class="result" role="status" hidden></div>
     </section>
-
-    <details class="panel step optional" id="step-claude">
-      <summary class="step-head">
-        <span class="step-num">+</span>
-        <div>
-          <h2>Optioneel: ook zoeken vanuit de Claude-app</h2>
-          <p class="step-status" id="claude-status"></p>
-        </div>
-      </summary>
-      <p class="hint">Niet nodig om in de browser te zoeken. Hiermee kun je ook in de Claude desktop-app vragen om locaties te zoeken; Claude bekijkt de foto's dan binnen je abonnement. Na het koppelen moet je de Claude-app volledig afsluiten en opnieuw openen.</p>
-      <button type="button" class="ghost" id="claude-link">Koppel aan de Claude-app</button>
-      <div id="claude-result" class="result" role="status" hidden></div>
-    </details>
 
     <section class="panel step">
       <div class="step-head">

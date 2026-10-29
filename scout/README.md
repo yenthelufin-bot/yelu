@@ -33,9 +33,9 @@ Markeer favorieten, wijs plekken af en schrijf notities (bv. "toestemming vragen
 
 Geen terminal nodig.
 
-### 1. Node.js en de Claude-app
+### 1. Node.js
 
-Installeer [Node.js](https://nodejs.org) **22.18 of nieuwer** (kies "LTS"), en de [Claude desktop-app](https://claude.ai/download) als je die nog niet hebt.
+Installeer [Node.js](https://nodejs.org) **22.18 of nieuwer** (kies "LTS").
 
 ### 2. Location Scout starten
 
@@ -60,7 +60,7 @@ Onder Instellingen zie je ook hoeveel van het gratis Google-gebruik je deze maan
 <details>
 <summary>Liever met de terminal?</summary>
 
-In de map `scout` doet `npm run setup` dezelfde stappen: installeren, sleutel vragen en testen, en koppelen aan de Claude-app. Daarna start `npm start` de app.
+In de map `scout` installeert `npm run setup` de onderdelen en vraagt en test je Google-sleutel (en koppelt, optioneel, de Claude desktop-app). Daarna start `npm start` de app.
 </details>
 
 Gebruik je Claude Code in deze repo? Dan is de koppeling al ingesteld in `.mcp.json`.
@@ -69,13 +69,9 @@ Gebruik je Claude Code in deze repo? Dan is de koppeling al ingesteld in `.mcp.j
 
 Dubbelklik op het startbestand. Kies bij **Nieuwe zoektocht** je plaats, straal, type locatie, kleuren en wensen, en klik op **Zoek locaties**. Je ziet de resultaten binnenkomen terwijl de app zoekt. Met de gratis versie van Gemini duurt een zoektocht van 20 plekken een paar minuten. Onder *Eerdere zoektochten* vind je alles terug.
 
-### Optioneel: ook vanuit de Claude-app
+### Zie je nog een oude versie?
 
-Onder **Instellingen** kun je Location Scout ook koppelen aan de Claude desktop-app. Dan kun je in een gesprek typen, bijvoorbeeld:
-
-> Zoek industriële locaties aan het water rond Gent, 10 km, in roest- en staaltinten.
-
-Claude bekijkt de foto's dan zelf, binnen je abonnement. Dit werkt **alleen in de Claude desktop-app** (niet op claude.ai in de browser of op je telefoon), en pas nadat je de app na het koppelen **volledig** hebt afgesloten en opnieuw geopend.
+Staat er "Kopieer opdracht voor Claude" in plaats van **Zoek locaties**? Dan draait er nog een oudere versie, bijvoorbeeld via een eerdere koppeling met de Claude desktop-app. Sluit het zwarte venster en dubbelklik opnieuw op het startbestand: de nieuwe versie start dan op een vrij adres ernaast en opent je browser daar.
 
 ## Tips
 
@@ -106,7 +102,7 @@ npm run typecheck  # TypeScript-controle
 De code is TypeScript en draait rechtstreeks met Node, zonder bouwstap:
 
 - `src/gemini.ts`: de beoordeling door Gemini (gratis versie)
-- `src/mcp.ts`: de optionele koppeling met de Claude-app
+- `src/mcp.ts`: een optionele koppeling met de Claude desktop-app (in te stellen met `npm run setup`), los van de webapp
 - `src/pipeline.ts`: het zoekproces
 - `src/usage.ts`: de bewaking van het gratis Google-gebruik
 - `src/presets.ts`: types, kleuren en extra wensen. Hier voeg je eenvoudig een nieuw type locatie toe.

@@ -14,6 +14,5 @@ if [ ! -d node_modules ]; then
   npm install --no-audit --no-fund || { read -r -p "Installeren mislukt. Druk op Enter om te sluiten."; exit 1; }
 fi
 
-(sleep 2 && open "http://localhost:4173") &
-echo "Location Scout start. Laat dit venster open zolang je de app gebruikt."
-npm start
+echo "Location Scout start en opent je browser. Laat dit venster open zolang je de app gebruikt."
+npm start -- --open

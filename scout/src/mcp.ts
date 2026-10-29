@@ -8,7 +8,7 @@ import { GoogleMaps } from "./google.ts";
 import { queryOverpass } from "./overpass.ts";
 import { findSpots, newSearch, type SpotDeps, toResult } from "./pipeline.ts";
 import { COLOR_PRESETS, EXTRA_FILTERS, LOCATION_TYPES } from "./presets.ts";
-import { createApp, ImageCache, loadEnv } from "./server.ts";
+import { ImageCache, loadEnv } from "./server.ts";
 import { SearchStore } from "./store.ts";
 import { type PendingSpot, type SavedSearch, SearchRequestSchema } from "./types.ts";
 import { meteredMaps, UsageMeter } from "./usage.ts";
@@ -322,22 +322,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   const key = process.env.GOOGLE_MAPS_API_KEY;
   const deps: SpotDeps | null = key ? { maps: meteredMaps(new GoogleMaps(key), meter), overpass: queryOverpass } : null;
 
-  // Also serve the results page, unless it already runs separately.
-  const app = createApp({
-    dataDir,
-    googleKey: key,
-    hasAnthropicCredentials: false,
-    geminiKey: process.env.GEMINI_API_KEY || undefined,
-    geminiModel: process.env.GEMINI_MODEL || undefined,
-    store,
-    images,
-    meter,
-  });
-  app.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code !== "EADDRINUSE") console.error("Webapp kon niet starten:", err.message);
-  });
-  app.listen(port, "127.0.0.1");
-
+  // The results page is the web app (start file); this process doesn't serve it,
+  // so it can never stand in the way of a newer version of the app.
   const server = createMcpServer({ store, images, meter, deps, webUrl: `http://localhost:${port}` });
   await server.connect(new StdioServerTransport());
 }

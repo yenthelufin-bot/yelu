@@ -24,7 +24,6 @@ if not exist node_modules (
   )
 )
 
-start "" cmd /c "timeout /t 3 /nobreak >nul & start http://localhost:4173"
-echo Location Scout start. Laat dit venster open zolang je de app gebruikt.
-call npm.cmd start
+echo Location Scout start en opent je browser. Laat dit venster open zolang je de app gebruikt.
+call npm.cmd start -- --open
 pause

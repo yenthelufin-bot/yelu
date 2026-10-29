@@ -178,42 +178,6 @@ const refreshEstimate = debounce(async () => {
   }
 }, 300);
 
-/** The form's choices as an instruction to paste in the Claude app, which has the Location Scout tools. */
-function buildPrompt(req) {
-  const c = state.config;
-  const label = (list, id) => list.find((x) => x.id === id)?.label ?? id;
-  const lines = [
-    `Zoek fotoshootlocaties met Location Scout (scout_search).`,
-    `- Plaats: ${req.place}, straal ${req.radiusKm} km`,
-    `- Type locatie: ${req.locationTypes.map((id) => `${label(c.locationTypes, id)} [${id}]`).join(", ")}`,
-  ];
-  if (req.description) lines.push(`- Omschrijving: ${req.description}`);
-  if (req.shootType) lines.push(`- Soort shoot: ${req.shootType}`);
-  if (req.colorPresets.length) lines.push(`- Kleursetting: ${req.colorPresets.map((id) => `${label(c.colorPresets, id)} [${id}]`).join(", ")}`);
-  if (req.customColors.length) lines.push(`- Eigen kleuren: ${req.customColors.join(", ")}`);
-  if (req.extraFilters.length) lines.push(`- Extra wensen: ${req.extraFilters.map((id) => `${label(c.extraFilters, id)} [${id}]`).join(", ")}`);
-  if (req.minPanoYear) lines.push(`- Street View-beelden niet ouder dan ${req.minPanoYear}`);
-  lines.push(`- Aantal plekken: ${Math.min(req.maxCandidates, 40)}`);
-  lines.push("", "Bekijk alle plekken, beoordeel ze en rond af met de link naar de resultaten.");
-  return lines.join("\n");
-}
-
-async function copyPrompt() {
-  const req = readForm();
-  if (!req.place) return showFormError("Geef een gemeente of stad op.");
-  if (!req.locationTypes.length) return showFormError("Kies minstens één type locatie.");
-  showFormError("");
-  const prompt = buildPrompt(req);
-  const button = $("#copy-prompt");
-  try {
-    await navigator.clipboard.writeText(prompt);
-    button.textContent = "Gekopieerd ✓ Plak in de Claude-app";
-    setTimeout(() => (button.textContent = "Kopieer opdracht voor Claude"), 4000);
-  } catch {
-    window.prompt("Kopieer deze opdracht en plak ze in de Claude-app:", prompt);
-  }
-}
-
 const geocodePreview = debounce(async () => {
   const q = $("#place").value.trim();
   if (q.length < 2) return;
@@ -275,7 +239,7 @@ function openSearch(id) {
   };
 }
 
-/** A search Claude is working on in the Claude app: reload it now and then. */
+/** A search that runs in another process (e.g. the optional Claude-app link): reload it now and then. */
 let pollTimer = null;
 function pollExternal() {
   clearTimeout(pollTimer);
@@ -321,7 +285,7 @@ function handleEvent(ev) {
         state.search.cost = ev.cost;
         state.search.analysed = ev.analysed;
       }
-      $("#run-meta").textContent = `${ev.analysed} van ${ev.total} plekken bekeken · ${ev.cost.streetViewImages} Street View-beelden${claudeCost(ev.cost)}`;
+      $("#run-meta").textContent = `${ev.analysed} van ${ev.total} plekken bekeken · ${ev.cost.streetViewImages} Street View-beelden${paidCost(ev.cost)}`;
       break;
     case "result":
       if (state.search) {
@@ -343,7 +307,8 @@ function handleEvent(ev) {
   }
 }
 
-const claudeCost = (cost) => (cost.estimatedUsd > 0 ? ` · Claude API: $${cost.estimatedUsd.toFixed(2)}` : "");
+// Only a paid API (configured by hand) costs money; Google and Gemini stay free.
+const paidCost = (cost) => (cost.estimatedUsd > 0 ? ` · betaalde API: $${cost.estimatedUsd.toFixed(2)}` : "");
 
 function renderRun() {
   const s = state.search;
@@ -353,16 +318,16 @@ function renderRun() {
   $("#cancel").hidden = !state.running;
   const external = s.status === "running" && !state.running;
   if (external) {
-    // Claude is working on it in the Claude app.
+    // Another process (the optional Claude-app link) is working on it.
     const total = s.spots?.length ?? 0;
     $("#progress-bar").style.width = `${total ? (100 * s.analysed) / total : 0}%`;
-    $("#run-status").textContent = "Claude bekijkt de plekken in de Claude-app… Deze pagina werkt zichzelf bij.";
+    $("#run-status").textContent = "Wordt elders nog beoordeeld… Deze pagina werkt zichzelf bij.";
     $("#run-meta").textContent = `${s.analysed} van ${total} plekken beoordeeld · ${s.cost.streetViewImages} Street View-beelden`;
   } else if (s.status !== "running") {
     $("#progress-bar").style.width = "100%";
     const labels = { done: "Klaar.", cancelled: "Gestopt.", error: `Fout: ${s.error}` };
     $("#run-status").textContent = labels[s.status] ?? "";
-    $("#run-meta").textContent = `${s.analysed} plekken bekeken van ${s.candidatesFound} kandidaten · ${s.cost.streetViewImages} Street View-beelden${claudeCost(s.cost)}`;
+    $("#run-meta").textContent = `${s.analysed} plekken bekeken van ${s.candidatesFound} kandidaten · ${s.cost.streetViewImages} Street View-beelden${paidCost(s.cost)}`;
   }
   for (const fmt of ["kml", "gpx", "csv"]) {
     const params = new URLSearchParams({ minScore: $("#filter-score").value });
@@ -590,8 +555,8 @@ async function renderHistory() {
     meta.className = "hint";
     const status = s.running
       ? "bezig"
-      : { done: "klaar", cancelled: "gestopt", error: "fout", running: s.engine === "claude-app" ? "bezig in Claude" : "onderbroken" }[s.status];
-    meta.textContent = `${new Date(s.createdAt).toLocaleString("nl-BE")} · ${types} · ${s.resultCount} locaties${s.topScore !== null ? ` (beste ${s.topScore})` : ""} · ${s.favoriteCount} favorieten · ${status}${claudeCost(s.cost)}`;
+      : { done: "klaar", cancelled: "gestopt", error: "fout", running: "onderbroken" }[s.status];
+    meta.textContent = `${new Date(s.createdAt).toLocaleString("nl-BE")} · ${types} · ${s.resultCount} locaties${s.topScore !== null ? ` (beste ${s.topScore})` : ""} · ${s.favoriteCount} favorieten · ${status}${paidCost(s.cost)}`;
     info.append(h, meta);
     const buttons = document.createElement("div");
     buttons.className = "buttons";
@@ -710,9 +675,6 @@ async function renderSettings() {
     if (!c.geminiModels.some((m) => m.id === c.geminiModel)) models.append(new Option(c.geminiModel, c.geminiModel));
   }
   models.value = c.geminiModel;
-  $("#step-claude").classList.toggle("done", c.claudeLinked);
-  $("#claude-status").textContent = c.claudeLinked ? "✓ Gekoppeld" : "Nog niet gekoppeld";
-  $("#claude-link").textContent = c.claudeLinked ? "Opnieuw koppelen" : "Koppel aan de Claude-app";
   try {
     const usage = await api("/api/usage");
     $("#usage-bars").replaceChildren(
@@ -748,9 +710,7 @@ async function saveGoogleKey(event) {
     const r = await api("/api/settings/google-key", { method: "POST", body: JSON.stringify({ key }) });
     if (r.saved) {
       input.value = "";
-      showResult(out, "good", "✓ De sleutel werkt en is bewaard.", [
-        "Stond de Claude desktop-app al open? Sluit ze dan volledig af en open ze opnieuw, zodat ze de sleutel ook kent.",
-      ]);
+      showResult(out, "good", "✓ De sleutel werkt en is bewaard.");
       state.config = await api("/api/config");
       showSetupWarning(state.config);
     } else {
@@ -798,35 +758,15 @@ async function saveGemini(event) {
   }
 }
 
-async function linkClaude() {
-  const out = $("#claude-result");
-  try {
-    const r = await api("/api/settings/link-claude", { method: "POST" });
-    showResult(out, "good", "✓ Gekoppeld. Sluit de Claude desktop-app nu volledig af (Mac: ⌘Q, Windows: rechtsklik op het icoon in de taakbalk → Afsluiten) en open ze opnieuw.", [
-      r.result === "updated" ? "Je bestaande Claude-instellingen zijn behouden; de vorige versie is bewaard als .backup." : `Instellingen aangemaakt in ${r.configFile}.`,
-      "Typ daarna in een nieuw gesprek bv.: \"Zoek industriële locaties aan het water rond Gent, 10 km, in roesttinten.\"",
-    ]);
-    state.config = await api("/api/config");
-    showSetupWarning(state.config);
-    renderSettings();
-  } catch (err) {
-    showResult(out, "bad", `Koppelen mislukt: ${err.message}`);
-  }
-}
-
 async function init() {
   state.config = await api("/api/config");
   showSetupWarning(state.config);
   $("#google-form").addEventListener("submit", saveGoogleKey);
   $("#gemini-form").addEventListener("submit", saveGemini);
-  $("#claude-link").addEventListener("click", linkClaude);
   renderForm();
   renderCustomColors();
 
   $("#search-form").addEventListener("submit", startSearch);
-  $("#copy-prompt").addEventListener("click", copyPrompt);
-  // The Claude app is an optional second way to search.
-  $("#copy-prompt").hidden = !state.config.claudeLinked;
   $("#place").addEventListener("input", () => {
     geocodePreview();
     refreshEstimate();
