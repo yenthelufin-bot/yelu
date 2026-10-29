@@ -43,3 +43,28 @@ test(".env values are set without touching other lines", () => {
   setEnvValue(file, "PORT", "5000");
   assert.equal(readFileSync(file, "utf8"), "# uitleg\nGOOGLE_MAPS_API_KEY=abc\nPORT=5000\n");
 });
+
+test("pasted keys are cleaned and new key formats are accepted", async () => {
+  const { cleanKey, looksLikeGoogleKey } = await import("../setup.mjs");
+  assert.equal(cleanKey("  AIzaSyAbc_123-xyz\n"), "AIzaSyAbc_123-xyz");
+  assert.equal(cleanKey('GEMINI_API_KEY="AQ.Ab8RN6Kx.y/z+w="'), "AQ.Ab8RN6Kx.y/z+w=");
+  assert.equal(cleanKey("​AIzaSyAbc﻿"), "AIzaSyAbc");
+  assert.equal(cleanKey("ABC=def"), "ABC=def", "only a NAME_KEY= prefix is stripped");
+  for (const key of ["AIzaSyD-abcdefghijklmnopqrstuvwxyz0123", "AQ.Ab8RN6Kx_y-Z.0123456789abcdef", "gsk_live.abc/def+ghi=="]) {
+    assert.equal(looksLikeGoogleKey(key), true, key);
+  }
+  for (const key of ["met spatie", 'aa"bbbbbbbbbbbb', "aaaa#bbbbbbbbbb", "kort", "é".repeat(20)]) {
+    assert.equal(looksLikeGoogleKey(key), false, key);
+  }
+});
+
+test("keys with special characters survive the .env file", async () => {
+  const { setEnvValue } = await import("../setup.mjs");
+  const file = path.join(mkdtempSync(path.join(tmpdir(), "env2-")), ".env");
+  const key = "AQ.Ab8RN6Kx_y-Z.01/23+45=67:89~";
+  setEnvValue(file, "GEMINI_API_KEY", key);
+  delete process.env.GEMINI_API_KEY;
+  process.loadEnvFile(file);
+  assert.equal(process.env.GEMINI_API_KEY, key);
+  delete process.env.GEMINI_API_KEY;
+});

@@ -57,10 +57,12 @@ test("a rejected key is not saved", async () => {
   assert.match(await readFile(envFile, "utf8"), /^GOOGLE_MAPS_API_KEY=$/m);
 });
 
-test("something that is not a key is refused before calling Google", async () => {
-  const res = await post("/api/settings/google-key", { key: "abc\nANTHROPIC_API_KEY=x" });
-  assert.equal(res.status, 400);
+test("a pasted key can never add other settings to .env", async () => {
+  const res = await post("/api/settings/google-key", { key: "abc\nANTHROPIC_API_KEY=x" }).then((r) => r.json());
+  assert.equal(res.saved, false);
   assert.doesNotMatch(await readFile(envFile, "utf8"), /ANTHROPIC/);
+  assert.equal((await post("/api/settings/google-key", { key: 'aaaa"bbbbbbbbbbbbbb' })).status, 400);
+  assert.equal((await post("/api/settings/google-key", { key: "   " })).status, 400);
 });
 
 test("a working key is saved and used right away", async () => {

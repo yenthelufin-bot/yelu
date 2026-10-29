@@ -13,7 +13,7 @@ import { COLOR_PRESETS, EXTRA_FILTERS, LOCATION_TYPES, SHOOT_TYPES } from "./pre
 import { SearchStore } from "./store.ts";
 import { ResultPatchSchema, type SavedSearch, SearchRequestSchema } from "./types.ts";
 import { meteredMaps, UsageMeter } from "./usage.ts";
-import { checkKey, claudeConfigPath, isClaudeLinked, linkClaudeDesktop, looksLikeGoogleKey, MCP_SCRIPT, setEnvValue } from "../setup.mjs";
+import { checkKey, claudeConfigPath, cleanKey, isClaudeLinked, linkClaudeDesktop, looksLikeGoogleKey, MCP_SCRIPT, setEnvValue } from "../setup.mjs";
 import { LocationJudge, type ViewImage } from "./vision.ts";
 import { DEFAULT_GEMINI_MODEL, GEMINI_MODELS, GeminiJudge } from "./gemini.ts";
 
@@ -223,8 +223,9 @@ export function createApp(options: AppOptions): http.Server {
     // POST /api/settings/google-key: test the key with Google, then save it in .env
     if (parts[1] === "settings" && parts[2] === "google-key" && method === "POST") {
       const body = (await readJson(req)) as { key?: unknown };
-      const key = typeof body.key === "string" ? body.key.trim() : "";
-      if (!looksLikeGoogleKey(key)) throw new HttpError(400, "Dat lijkt geen Google-sleutel. Die bestaat uit letters, cijfers, - en _.");
+      const key = cleanKey(body.key);
+      if (!key) throw new HttpError(400, "Plak eerst je sleutel in het veld.");
+      if (!looksLikeGoogleKey(key)) throw new HttpError(400, "Die sleutel bevat spaties, aanhalingstekens, # of \\, en dat hoort niet in een sleutel. Kopieer hem opnieuw.");
       const problems = await checkGoogleKey(key);
       if (problems.length) {
         sendJson(res, 200, { saved: false, problems });
@@ -240,9 +241,10 @@ export function createApp(options: AppOptions): http.Server {
     // POST /api/settings/gemini: test the Gemini key and model, then save them in .env
     if (parts[1] === "settings" && parts[2] === "gemini" && method === "POST") {
       const body = (await readJson(req)) as { key?: unknown; model?: unknown };
-      const key = typeof body.key === "string" && body.key.trim() ? body.key.trim() : geminiKey ?? "";
+      const key = cleanKey(body.key) || geminiKey || "";
       const model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : geminiModel;
-      if (!looksLikeGoogleKey(key)) throw new HttpError(400, "Dat lijkt geen Gemini-sleutel. Die bestaat uit letters, cijfers, - en _.");
+      if (!key) throw new HttpError(400, "Plak eerst je Gemini-sleutel in het veld.");
+      if (!looksLikeGoogleKey(key)) throw new HttpError(400, "Die sleutel bevat spaties, aanhalingstekens, # of \\, en dat hoort niet in een sleutel. Kopieer hem opnieuw.");
       if (!/^[a-z0-9.-]{3,60}$/.test(model)) throw new HttpError(400, "Ongeldige modelnaam.");
       const problem = await checkGemini(key, model);
       if (problem) {

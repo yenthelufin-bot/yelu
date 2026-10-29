@@ -65,9 +65,24 @@ function currentKey() {
 
 export const MCP_SCRIPT = path.join(ROOT, "src", "mcp.ts");
 
-/** A Google API key is letters, digits, dashes and underscores; nothing that could break the .env file. */
+/**
+ * Tidies a pasted key: invisible characters, surrounding quotes and a
+ * leading "NAME=" are copy-paste leftovers, never part of a key.
+ */
+export function cleanKey(raw) {
+  let key = String(raw ?? "").replace(/[\s\u200B-\u200D\u2060\uFEFF]/g, "");
+  key = key.replace(/^[A-Z_]*KEY[A-Z_]*=/, "");
+  key = key.replace(/^["'`]+|["'`]+$/g, "");
+  return key;
+}
+
+/**
+ * Google key formats change (AI Studio keys no longer all look like Maps
+ * keys), so only refuse what can't be a key or would break the .env file:
+ * spaces, quotes, "#" and backslashes. Google itself judges the rest.
+ */
 export function looksLikeGoogleKey(key) {
-  return /^[A-Za-z0-9_-]{20,100}$/.test(key);
+  return /^[\x21-\x7E]{10,300}$/.test(key) && !/["'`#\\]/.test(key);
 }
 
 /** Whether the Claude desktop app's config already starts Location Scout. */
@@ -131,11 +146,11 @@ async function main() {
   }
   if (!key) {
     console.log("  Maak de sleutel aan zoals beschreven in README.md (stap 3), en plak hem hier.");
-    key = (await ask("  GOOGLE_MAPS_API_KEY: ")).trim();
+    key = cleanKey(await ask("  GOOGLE_MAPS_API_KEY: "));
   }
   rl.close();
   if (key && !looksLikeGoogleKey(key)) {
-    warn("Dat lijkt geen Google-sleutel (die bestaat uit letters, cijfers, - en _). Niets opgeslagen.");
+    warn("Die sleutel bevat spaties, aanhalingstekens, # of \\, en dat kan niet. Niets opgeslagen.");
     key = "";
   }
   if (!key) {
